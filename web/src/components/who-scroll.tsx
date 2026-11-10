@@ -54,9 +54,10 @@ export function WhoScroll() {
     <section id="who" className="relative mx-auto max-w-[1280px] px-4 py-24 sm:px-6 md:py-32">
       <div className="grid gap-10 md:grid-cols-[1.05fr_1fr] md:gap-16">
         {/* Sticky headline: the word changes as each chapter scrolls past */}
-        <div className="md:sticky md:top-28 md:h-[calc(100dvh-10rem)] md:self-start">
+        {/* fits the viewport exactly: text keeps its height, the picture takes what is left */}
+        <div className="md:sticky md:top-24 md:flex md:h-[calc(100dvh-8rem)] md:flex-col md:self-start">
           <p className="eyebrow mb-6">Who lives here</p>
-          <h2 className="display-2 text-[clamp(2.6rem,6.2vw,5.6rem)]">
+          <h2 className="display-2 text-[clamp(2.6rem,6.2vw,5.6rem)] md:text-[clamp(2.4rem,min(6vw,8.5dvh),5.6rem)]">
             <span className="text-moss">A home for</span>
             <span className="relative mt-1 block h-[2.05em] overflow-hidden md:h-[2.1em]">
               {CHAPTERS.map((c, i) => (
@@ -86,7 +87,7 @@ export function WhoScroll() {
             ))}
           </div>
           {/* the picture changes with the chapter */}
-          <div className="relative mt-8 hidden aspect-[4/3] max-h-[38vh] overflow-hidden rounded-2xl bg-oat md:block">
+          <div className="relative mt-8 hidden max-h-[26rem] min-h-0 flex-1 overflow-hidden rounded-2xl bg-oat md:block [@media(max-height:520px)]:!hidden">
             {CHAPTERS.map((c, i) => (
               <img
                 key={c.key}

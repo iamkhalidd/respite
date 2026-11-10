@@ -87,7 +87,10 @@ export function WhoScroll() {
             ))}
           </div>
           {/* the picture changes with the chapter */}
-          <div className="relative mt-8 hidden max-h-[26rem] min-h-0 flex-1 overflow-hidden rounded-2xl bg-oat md:block [@media(max-height:520px)]:!hidden">
+          {/* the slot takes the height left under the headline; the frame inside is always 4:3
+              (the photos' own shape) and as large as fits, so nothing is ever cropped */}
+          <div className="mt-8 hidden min-h-0 flex-1 [container-type:size] md:block [@media(max-height:520px)]:!hidden">
+          <div className="relative aspect-[4/3] w-[min(100cqw,calc(100cqh*4/3))] overflow-hidden rounded-2xl bg-oat">
             {CHAPTERS.map((c, i) => (
               <img
                 key={c.key}
@@ -99,6 +102,7 @@ export function WhoScroll() {
                 style={{ opacity: active === i ? 1 : 0, transform: `scale(${active === i ? 1 : 1.06})` }}
               />
             ))}
+          </div>
           </div>
         </div>
 

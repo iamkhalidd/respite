@@ -1,0 +1,12 @@
+# large AI source renders (web/public/images holds the optimized copies)
+image-sources/
+# local tooling
+graphify-out/
+.claude/
+# local data and generated files
+web/prisma/*.db
+web/prisma/*.db-journal
+web/prisma/schema.pg.prisma
+web/public/uploads/
+.env*
+!web/.env.example

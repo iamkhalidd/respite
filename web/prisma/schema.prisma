@@ -1,0 +1,97 @@
+// Local development uses SQLite so the site runs offline.
+// For hosting, switch provider to "postgresql" and point DATABASE_URL at Neon.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  kind         String   // PRIVATE | SHARED
+  floor        String   // Ground | Upper
+  bathroom     String   // Private | Shared
+  rentCents    Int
+  depositCents Int
+  summary      String
+  description  String
+  features     String   // JSON string[]
+  photos       String   @default("[]") // JSON string[] of /uploads paths
+  tone         String   @default("sage") // placeholder art palette
+  sortOrder    Int      @default(0)
+  beds         Bed[]
+  requests     Request[]
+  createdAt    DateTime @default(now())
+}
+
+model Bed {
+  id            String    @id @default(cuid())
+  label         String    // "Bed 1"
+  roomId        String
+  room          Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  availableFrom DateTime? // when a currently occupied bed frees up
+  resident      Resident?
+}
+
+model Request {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  status       String    @default("NEW") // NEW | CONTACTED | TOUR | APPROVED | DECLINED | MOVED_IN
+  forWhom      String    // SELF | FAMILY | PROFESSIONAL
+  program      String    // VETERAN | RECOVERY | SENIOR
+  name         String
+  phone        String
+  email        String?
+  moveIn       String    // ASAP | 30_DAYS | 60_DAYS | EXPLORING
+  payment      String?   // VA | SSI | PRIVATE | OTHER | UNSURE
+  message      String?
+  roomId       String?
+  room         Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  referrerName String?
+  referrerOrg  String?
+  referrerPhone String?
+  referrerEmail String?
+  ownerNotes   String    @default("")
+  resident     Resident?
+}
+
+model Resident {
+  id          String    @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  bedId       String?   @unique
+  bed         Bed?      @relation(fields: [bedId], references: [id], onDelete: SetNull)
+  requestId   String?   @unique
+  request     Request?  @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  moveInDate  DateTime
+  moveOutDate DateTime?
+  rentCents   Int
+  autopay     Boolean   @default(false)
+  portalToken String    @unique
+  active      Boolean   @default(true)
+  charges     Charge[]
+  createdAt   DateTime  @default(now())
+}
+
+model Charge {
+  id              String    @id @default(cuid())
+  residentId      String
+  resident        Resident  @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  label           String    // "December rent", "Security deposit"
+  period          String?   // "2026-12" for rent charges, used to avoid duplicates
+  amountCents     Int
+  dueDate         DateTime
+  status          String    @default("DUE") // DUE | PAID | VOID
+  paidAt          DateTime?
+  method          String?   // CARD | ACH | CASH | CHECK | DEMO
+  stripeSessionId String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([residentId, period])
+}

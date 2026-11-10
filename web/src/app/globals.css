@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/*
+  Respite for the Weary — design system
+  The idea: a house at night with the porch light on. Six windows, one per bed;
+  a lit window is an open bed. Everything else stays quiet so the light can speak.
+
+  Type   Geist, one family, set like a poster: huge, tight, black-on-white.
+         Geist Mono for facts (counts, prices, dates, labels).
+  Color  Neutral ink + white. Porch amber is the only color, and it only ever
+         means "light is on": an open bed or the one primary action.
+
+  Token names are kept from v1 so the dashboard keeps working:
+  oat = page, paper = surface, pine = ink surface, moss = secondary text.
+*/
+:root {
+  --oat: #f4f4f1;        /* page */
+  --paper: #ffffff;      /* surfaces */
+  --ink: #0f1110;        /* text */
+  --pine: #0f1110;       /* dark surfaces, primary buttons */
+  --night: #0b0d0c;      /* hero sky */
+  --moss: #6d716e;       /* secondary text */
+  --porch: #f0a53a;      /* the light — availability + primary moment */
+  --porch-glow: #ffd98f;
+  --ember: #c24a2c;      /* overdue / errors */
+  --line: rgb(15 17 16 / 0.1);
+  --line-strong: rgb(15 17 16 / 0.2);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@theme inline {
+  --color-oat: var(--oat);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-pine: var(--pine);
+  --color-night: var(--night);
+  --color-moss: var(--moss);
+  --color-porch: var(--porch);
+  --color-porch-glow: var(--porch-glow);
+  --color-ember: var(--ember);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --font-display: var(--font-geist);
+  --font-sans: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--porch-glow); color: var(--ink); }
+
+@layer components {
+/* Display: poster scale, tight, set rarely */
+.display {
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  line-height: 0.9;
+  text-wrap: balance;
+}
+.display-2 {
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+.eyebrow {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--moss);
+}
+.mono { font-family: var(--font-geist-mono), ui-monospace, monospace; letter-spacing: -0.01em; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Pressable: every button and tappable card */
+.press { transition: transform 160ms var(--ease-out), background-color 160ms ease, color 160ms ease, box-shadow 200ms ease; }
+.press:active { transform: scale(0.97); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  height: 2.75rem; padding: 0 1.2rem; border-radius: 999px;
+  font-weight: 500; font-size: 0.95rem; letter-spacing: -0.01em; white-space: nowrap;
+}
+.btn-primary { background: var(--ink); color: #fff; }
+.btn-porch { background: var(--porch); color: var(--ink); }
+.btn-ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.btn-light { background: #fff; color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover { background: #2a2d2b; }
+  .btn-porch:hover { background: var(--porch-glow); }
+  .btn-ghost:hover { background: rgb(15 17 16 / 0.05); }
+  .btn-light:hover { background: var(--porch-glow); }
+}
+
+/* Rolling label (hover): the text slides up and its copy follows from below */
+.roll { display: inline-flex; overflow: hidden; position: relative; vertical-align: top; line-height: 1.25; }
+.roll > span { display: inline-block; transition: transform 420ms var(--ease-out); }
+.roll > span::after { content: attr(data-text); position: absolute; left: 0; top: 100%; }
+@media (hover: hover) and (pointer: fine) {
+  :is(a, button):hover > .roll > span, .roll:hover > span { transform: translateY(-100%); }
+}
+
+/* Hairline grid: cells share 1px rules (Stripe-style) */
+.hairline { display: grid; gap: 1px; background: var(--line); box-shadow: 0 0 0 1px var(--line); }
+.hairline > * { background: var(--paper); }
+}
+
+:focus-visible { outline: 2px solid var(--porch); outline-offset: 3px; border-radius: 6px; }
+
+/* Lit window glow used by the signature element */
+@keyframes flicker-on {
+  0% { opacity: 0; }
+  30% { opacity: 0.7; }
+  45% { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+.window-lit { animation: flicker-on 900ms var(--ease-out) both; }
+
+/* Page-load rise used on hero lines */
+@keyframes rise { from { opacity: 0; transform: translateY(0.35em); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+.rise { animation: rise 1000ms var(--ease-out) both; }
+
+/* Entrance used by <Reveal>; JS adds data-shown */
+[data-reveal] { opacity: 0; transform: translateY(16px); transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out); }
+[data-reveal][data-shown="true"] { opacity: 1; transform: none; }
+[data-reveal-clip] { clip-path: inset(0 0 100% 0); transition: clip-path 1100ms var(--ease-in-out); }
+[data-reveal-clip][data-shown="true"] { clip-path: inset(0 0 0 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  [data-reveal], [data-reveal-clip] { transform: none !important; clip-path: none !important; transition: opacity 200ms ease !important; }
+  .press:active { transform: none; }
+  .roll > span { transition: none; }
+}
+
+/* Hide scrollbars on horizontal chip rows */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

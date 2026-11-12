@@ -1,101 +1,152 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowRight, Mail, MessageSquare, Phone } from "lucide-react";
 import { db } from "@/lib/db";
 import { getBeds } from "@/lib/availability";
-import { longDate, money } from "@/lib/format";
+import { longDate, shortDate, timeAgo } from "@/lib/format";
 import { FOR_WHOM, MOVE_IN, PAYMENT, PROGRAMS } from "@/lib/labels";
-import { moveIn } from "../../../actions";
-import { Page, Prop, btnPrimary, input } from "../../ui";
-import { StatusPicker, Notes } from "./client";
-import { SubmitButton } from "../../submit";
+import { Page, Card, CardHead, Prop, StatusPill, btnPrimary, btnQuiet, link } from "../../ui";
+import { StatusSteps, Notes, MoveInForm, type BedOption } from "./client";
+
+const digits = (p: string) => p.replace(/[^\d+]/g, "");
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const r = await db.request.findUnique({ where: { id }, include: { room: true, resident: true } });
   if (!r) notFound();
-  const beds = (await getBeds()).filter((b) => b.state !== "taken");
-  const preferred = beds.find((b) => b.roomSlug === r.room?.slug) ?? beds[0];
-  const rooms = await db.room.findMany();
+  const [beds, rooms] = await Promise.all([getBeds(), db.room.findMany()]);
   const roomOf = (slug: string) => rooms.find((x) => x.slug === slug)!;
+  // a bed can be moved into only when nobody lives in it; beds someone is leaving are listed but locked
+  const options: BedOption[] = beds
+    .filter((b) => !b.residentName || b.state !== "taken")
+    .map((b) => ({
+      id: b.id,
+      label: b.label,
+      roomName: b.roomName,
+      rent: roomOf(b.roomSlug).rentCents / 100,
+      deposit: roomOf(b.roomSlug).depositCents / 100,
+      blocked: b.residentName ? `${b.residentName} is still here${b.availableFrom ? ` until ${shortDate(b.availableFrom)}` : ""}. Move them out first.` : undefined,
+    }));
+  const free = options.filter((o) => !o.blocked);
+  const preferred = free.find((o) => beds.find((b) => b.id === o.id)?.roomSlug === r.room?.slug) ?? free[0];
   const today = new Date().toISOString().slice(0, 10);
+  const first = r.name.split(" ")[0];
+  const open = !r.resident && r.status !== "DECLINED";
 
   return (
-    <Page title={r.name} crumb={<Link href="/admin/requests" className="hover:text-ink">Requests</Link>}>
-      <dl className="max-w-2xl">
-        <Prop label="Status"><StatusPicker id={r.id} status={r.status} /></Prop>
-        <Prop label="Received">{longDate(r.createdAt)}</Prop>
-        <Prop label="Looking for">{PROGRAMS[r.program as keyof typeof PROGRAMS]?.long}</Prop>
-        <Prop label="Request from">{FOR_WHOM[r.forWhom as keyof typeof FOR_WHOM]}</Prop>
-        <Prop label="Room">{r.room ? <Link className="underline decoration-line-strong underline-offset-4" href={`/rooms/${r.room.slug}`} target="_blank">{r.room.name}</Link> : "No preference"}</Prop>
-        <Prop label="Move in">{MOVE_IN[r.moveIn as keyof typeof MOVE_IN]}</Prop>
-        <Prop label="Pays with">{r.payment ? PAYMENT[r.payment as keyof typeof PAYMENT] : "—"}</Prop>
-        <Prop label="Phone"><a className="tabular font-medium text-pine" href={`tel:${r.phone}`}>{r.phone}</a></Prop>
-        <Prop label="Email">{r.email ? <a className="text-pine" href={`mailto:${r.email}`}>{r.email}</a> : "—"}</Prop>
-        {r.referrerName && (
-          <Prop label="Referred by">
-            {r.referrerName}
-            {r.referrerOrg && <span className="text-ink/55">, {r.referrerOrg}</span>}
-            <span className="block text-[0.85rem] text-ink/55">{[r.referrerPhone, r.referrerEmail].filter(Boolean).join(" · ")}</span>
-          </Prop>
-        )}
-      </dl>
-
-      {r.message && (
-        <blockquote className="mt-8 max-w-2xl border-l-[3px] border-porch pl-4 text-[1.02rem] leading-relaxed text-ink/80">{r.message}</blockquote>
-      )}
-
-      <section className="mt-12 max-w-2xl border-t border-line pt-8">
-        <h2 className="mb-3 text-[0.95rem] font-semibold">Your notes</h2>
-        <Notes id={r.id} initial={r.ownerNotes} />
-      </section>
-
-      <section className="mt-12 max-w-2xl border-t border-line pt-8">
-        {r.resident ? (
-          <p className="text-ink/70">
-            Moved in on {longDate(r.resident.moveInDate)}. <Link href={`/admin/residents/${r.resident.id}`} className="font-medium text-pine underline underline-offset-4">Open resident</Link>
+    <Page
+      wide
+      title={r.name}
+      crumb={
+        <>
+          <Link href="/admin/requests" className="hover:text-ink">
+            Requests
+          </Link>
+          <span aria-hidden>/</span>
+          <span>{timeAgo(r.createdAt)}</span>
+        </>
+      }
+      actions={<StatusPill status={r.status} />}
+    >
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+        {/* Reach them: first thing on a phone */}
+        <Card className="p-4 lg:col-start-2 lg:row-start-1">
+          <div className="grid grid-cols-3 gap-2">
+            <a href={`tel:${digits(r.phone)}`} className={`${btnPrimary} !h-12 !px-2`}>
+              <Phone size={16} /> Call
+            </a>
+            <a href={`sms:${digits(r.phone)}`} className={`${btnQuiet} !h-12 !px-2`}>
+              <MessageSquare size={16} /> Text
+            </a>
+            {r.email ? (
+              <a href={`mailto:${r.email}`} className={`${btnQuiet} !h-12 !px-2`}>
+                <Mail size={16} /> Email
+              </a>
+            ) : (
+              <span className={`${btnQuiet} !h-12 !px-2 cursor-not-allowed opacity-45`} aria-disabled>
+                <Mail size={16} /> Email
+              </span>
+            )}
+          </div>
+          <p className="mono tabular mt-3 text-center text-[0.86rem] text-moss">
+            {r.phone}
+            {r.email ? ` · ${r.email}` : ""}
           </p>
-        ) : r.status === "DECLINED" ? (
-          <p className="text-ink/55">Marked as not a fit.</p>
-        ) : beds.length === 0 ? (
-          <p className="text-ink/55">Every bed is taken. Keep this request on the board and move them in when a bed opens.</p>
-        ) : (
-          <>
-            <h2 className="text-[0.95rem] font-semibold">Move in</h2>
-            <p className="mt-1 text-[0.9rem] text-ink/55">
-              Assigns the bed, bills the deposit and first month, and {r.email ? "emails them a link to pay online." : "creates a payment link you can share (no email on file)."}
-            </p>
-            <form action={moveIn.bind(null, r.id)} className="mt-5 grid gap-4 rounded-xl bg-white p-5 ring-1 ring-line sm:grid-cols-2">
-              <label className="sm:col-span-2">
-                <span className="mb-1.5 block text-[0.85rem] text-ink/60">Bed</span>
-                <select name="bedId" defaultValue={preferred?.id} className={input}>
-                  {beds.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.label} — {b.roomName} ({money(roomOf(b.roomSlug).rentCents)}/mo){b.state === "soon" ? ` · frees up ${longDate(b.availableFrom!)}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1.5 block text-[0.85rem] text-ink/60">Move-in date</span>
-                <input type="date" name="moveInDate" defaultValue={today} required className={input} />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label>
-                  <span className="mb-1.5 block text-[0.85rem] text-ink/60">Monthly rent ($)</span>
-                  <input type="number" name="rent" min={0} step="1" defaultValue={(preferred ? roomOf(preferred.roomSlug).rentCents : 0) / 100} className={input} />
-                </label>
-                <label>
-                  <span className="mb-1.5 block text-[0.85rem] text-ink/60">Deposit ($)</span>
-                  <input type="number" name="deposit" min={0} step="1" defaultValue={(preferred ? roomOf(preferred.roomSlug).depositCents : 0) / 100} className={input} />
-                </label>
-              </div>
-              <div className="sm:col-span-2">
-                <SubmitButton className={btnPrimary}>Move in {r.name.split(" ")[0]}</SubmitButton>
-              </div>
-            </form>
-          </>
+        </Card>
+
+        <div className="grid gap-5 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+          {r.message && (
+            <Card className="p-5 sm:p-6">
+              <p className="eyebrow mb-3">In their words</p>
+              <blockquote className="whitespace-pre-line border-l-2 border-porch pl-4 text-[1.08rem] leading-relaxed">{r.message}</blockquote>
+            </Card>
+          )}
+
+          <Card>
+            <CardHead title="The request" hint={`Received ${longDate(r.createdAt)}`} />
+            <dl className="mt-2 divide-y divide-line px-5 pb-2 sm:px-6">
+              <Prop label="Looking for">{PROGRAMS[r.program as keyof typeof PROGRAMS]?.long}</Prop>
+              <Prop label="Request from">{FOR_WHOM[r.forWhom as keyof typeof FOR_WHOM]}</Prop>
+              <Prop label="Room">
+                {r.room ? (
+                  <Link className={link} href={`/rooms/${r.room.slug}`} target="_blank">
+                    {r.room.name}
+                  </Link>
+                ) : (
+                  "No preference"
+                )}
+              </Prop>
+              <Prop label="Move in">{MOVE_IN[r.moveIn as keyof typeof MOVE_IN]}</Prop>
+              <Prop label="Pays with">{r.payment ? PAYMENT[r.payment as keyof typeof PAYMENT] : "Not said"}</Prop>
+              {r.referrerName && (
+                <Prop label="Referred by">
+                  {r.referrerName}
+                  {r.referrerOrg && <span className="text-moss">, {r.referrerOrg}</span>}
+                  <span className="block text-[0.86rem] text-moss">{[r.referrerPhone, r.referrerEmail].filter(Boolean).join(" · ")}</span>
+                </Prop>
+              )}
+            </dl>
+          </Card>
+
+          <Card className="p-5 sm:p-6">
+            <h2 className="mb-3 text-[1.02rem] font-semibold tracking-[-0.02em]">Your notes</h2>
+            <Notes id={r.id} initial={r.ownerNotes} />
+          </Card>
+        </div>
+
+        {!r.resident && (
+          <Card className="p-3 lg:col-start-2">
+            <h2 className="px-3 pb-2 pt-2 text-[1.02rem] font-semibold tracking-[-0.02em]">Where it stands</h2>
+            <StatusSteps id={r.id} status={r.status} />
+          </Card>
         )}
-      </section>
+
+        <Card className="lg:col-start-2">
+          {r.resident ? (
+            <div className="p-5 sm:p-6">
+              <h2 className="text-[1.02rem] font-semibold tracking-[-0.02em]">{first} lives here now</h2>
+              <p className="mt-1 text-[0.92rem] text-moss">Moved in on {longDate(r.resident.moveInDate)}.</p>
+              <Link href={`/admin/residents/${r.resident.id}`} className={`${btnPrimary} mt-4`}>
+                Open resident <ArrowRight size={15} />
+              </Link>
+            </div>
+          ) : !open ? (
+            <p className="p-5 text-[0.92rem] text-moss sm:p-6">Marked as not a fit. Reopen the request above if that changes.</p>
+          ) : !free.length ? (
+            <div className="p-5 sm:p-6">
+              <h2 className="text-[1.02rem] font-semibold tracking-[-0.02em]">No bed is free</h2>
+              <p className="mt-1 text-[0.92rem] leading-snug text-moss">Keep {first} on the board. When someone moves out, their bed shows up here.</p>
+            </div>
+          ) : (
+            <>
+              <CardHead title={`Move ${first} in`} />
+              <div className="p-5 pt-4 sm:p-6 sm:pt-4">
+                <MoveInForm requestId={r.id} firstName={first} beds={options} preferredId={preferred?.id} today={today} hasEmail={!!r.email} />
+              </div>
+            </>
+          )}
+        </Card>
+      </div>
     </Page>
   );
 }

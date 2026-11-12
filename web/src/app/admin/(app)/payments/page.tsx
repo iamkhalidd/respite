@@ -1,86 +1,105 @@
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
 import { db } from "@/lib/db";
 import { money } from "@/lib/format";
 import { stripeEnabled } from "@/lib/stripe";
 import { billMonth } from "../../actions";
-import { Page, btnPrimary, input } from "../ui";
+import { Page, Card, CardHead, Notice, Label, btnPrimary, input } from "../ui";
 import { SubmitButton } from "../submit";
-import { ChargeTable } from "./charge-table";
+import { ChargeList } from "./charge-table";
 
 const TABS = [
   ["due", "Unpaid"],
   ["paid", "Paid"],
   ["all", "All"],
 ] as const;
+const EMPTY: Record<string, string> = {
+  due: "Everyone is paid up.",
+  paid: "No payments yet. They show up here as residents pay.",
+  all: "No charges yet. Charges are created when someone moves in or when you bill rent.",
+};
 
 export default async function Payments({ searchParams }: { searchParams: Promise<{ tab?: string; billed?: string }> }) {
-  const { tab = "due", billed } = await searchParams;
+  const sp = await searchParams;
+  const tab = TABS.some(([k]) => k === sp.tab) ? (sp.tab as string) : "due";
+  const billed = sp.billed;
   const where = tab === "paid" ? { status: "PAID" } : tab === "all" ? {} : { status: "DUE" };
-  const charges = await db.charge.findMany({
-    where,
-    orderBy: tab === "paid" ? { paidAt: "desc" } : { dueDate: "asc" },
-    include: { resident: { select: { id: true, name: true } } },
-    take: 200,
-  });
-
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [due, collected] = await Promise.all([
-    db.charge.aggregate({ where: { status: "DUE" }, _sum: { amountCents: true } }),
+  const lateBefore = new Date(Date.now() - 86400000);
+
+  const [charges, due, late, collected, residents] = await Promise.all([
+    db.charge.findMany({
+      where,
+      orderBy: tab === "paid" ? { paidAt: "desc" } : tab === "all" ? { dueDate: "desc" } : { dueDate: "asc" },
+      include: { resident: { select: { id: true, name: true, email: true } } },
+      take: 200,
+    }),
+    db.charge.aggregate({ where: { status: "DUE" }, _sum: { amountCents: true }, _count: true }),
+    db.charge.aggregate({ where: { status: "DUE", dueDate: { lt: lateBefore } }, _sum: { amountCents: true }, _count: true }),
     db.charge.aggregate({ where: { status: "PAID", paidAt: { gte: monthStart } }, _sum: { amountCents: true } }),
+    db.resident.count({ where: { active: true } }),
   ]);
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const nextValue = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+  const lateSum = late._sum.amountCents ?? 0;
+
+  const facts: [string, string, string, boolean][] = [
+    ["Waiting to be paid", money(due._sum.amountCents ?? 0), `${due._count} ${due._count === 1 ? "charge" : "charges"}`, false],
+    ["Past due", money(lateSum), late._count ? `${late._count} ${late._count === 1 ? "charge" : "charges"}` : "Nothing late", lateSum > 0],
+    [`Collected in ${now.toLocaleDateString("en-US", { month: "long", timeZone: "America/New_York" })}`, money(collected._sum.amountCents ?? 0), "So far this month", false],
+  ];
 
   return (
-    <Page title="Payments">
+    <Page wide title="Payments" eyebrow="Rent and deposits">
       {billed !== undefined && (
-        <div className="mb-8 flex max-w-2xl items-center gap-2.5 rounded-xl bg-[#dfeadb] px-4 py-3 text-[0.92rem] text-[#2f5b2b]">
-          <CheckCircle2 size={17} />
-          {Number(billed) ? `Billed ${billed} resident${billed === "1" ? "" : "s"} and sent them a link to pay.` : "Everyone was already billed for that month."}
-        </div>
+        <Notice>{Number(billed) ? `Billed ${billed} ${billed === "1" ? "resident" : "residents"}. Anyone with an email on file was sent a link to pay.` : "Everyone was already billed for that month. Nothing was added."}</Notice>
       )}
+      {!stripeEnabled() && <Notice tone="warn">Online payments are in test mode. Residents can try the pay page, but no real money moves until your Stripe keys are added.</Notice>}
 
-      <div className="grid max-w-3xl grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
-        <div className="bg-white p-5">
-          <p className="text-[0.82rem] text-ink/50">Waiting to be paid</p>
-          <p className="tabular mt-1 text-[1.7rem] font-semibold tracking-tight text-ember">{money(due._sum.amountCents ?? 0)}</p>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid min-w-0 gap-5">
+          <dl className="grid overflow-hidden rounded-2xl bg-paper ring-1 ring-line sm:grid-cols-3">
+            {facts.map(([k, v, sub, alert], i) => (
+              <div key={k} className={`p-5 sm:p-6 ${i ? "border-t border-line sm:border-l sm:border-t-0" : ""}`}>
+                <dt className="text-[0.84rem] text-moss">{k}</dt>
+                <dd className={`mono tabular mt-1.5 text-[1.7rem] font-medium leading-none tracking-[-0.045em] ${alert ? "text-ember" : ""}`}>{v}</dd>
+                <dd className="mt-2 text-[0.8rem] text-moss">{sub}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <Card>
+            <div className="flex items-center justify-between gap-3 px-5 pt-4 sm:px-6">
+              <h2 className="text-[1.02rem] font-semibold tracking-[-0.02em]">Charges</h2>
+              <nav aria-label="Filter charges" className="flex rounded-full bg-ink/[.06] p-1 text-[0.86rem]">
+                {TABS.map(([k, label]) => (
+                  <Link
+                    key={k}
+                    href={`/admin/payments?tab=${k}`}
+                    aria-current={tab === k ? "true" : undefined}
+                    className={`grid h-9 place-items-center rounded-full px-3.5 transition-colors sm:h-8 ${tab === k ? "bg-paper font-medium shadow-[0_1px_2px_rgb(15_17_16/.15)]" : "text-moss hover:text-ink"}`}
+                  >
+                    {label}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+            <div className="mt-3 border-t border-line">
+              <ChargeList charges={charges} showResident empty={EMPTY[tab]} />
+            </div>
+          </Card>
         </div>
-        <div className="bg-white p-5">
-          <p className="text-[0.82rem] text-ink/50">Collected in {now.toLocaleDateString("en-US", { month: "long" })}</p>
-          <p className="tabular mt-1 text-[1.7rem] font-semibold tracking-tight">{money(collected._sum.amountCents ?? 0)}</p>
-        </div>
-      </div>
 
-      <form action={billMonth} className="mt-6 flex max-w-3xl flex-wrap items-end gap-3 rounded-xl bg-white p-4 ring-1 ring-line">
-        <label className="flex-1">
-          <span className="mb-1.5 block text-[0.85rem] font-medium">Bill monthly rent</span>
-          <span className="mb-2 block text-[0.82rem] text-ink/50">Creates rent for every current resident and emails them a pay link. Anyone already billed for that month is skipped.</span>
-          <input type="month" name="month" defaultValue={nextValue} required className={`${input} !w-48`} />
-        </label>
-        <SubmitButton className={btnPrimary}>Bill rent</SubmitButton>
-      </form>
-
-      {!stripeEnabled() && (
-        <p className="mt-4 max-w-3xl text-[0.82rem] text-ink/45">
-          Online payments are in test mode. Residents can try the pay page, but no real money moves until Stripe keys are added.
-        </p>
-      )}
-
-      <nav className="mt-10 flex gap-1 border-b border-line" aria-label="Filter charges">
-        {TABS.map(([k, label]) => (
-          <Link
-            key={k}
-            href={`/admin/payments?tab=${k}`}
-            className={`-mb-px border-b-2 px-3 pb-2.5 text-[0.9rem] transition-colors ${tab === k ? "border-ink font-medium text-ink" : "border-transparent text-ink/50 hover:text-ink"}`}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
-      <div className="mt-5">
-        <ChargeTable charges={charges} showResident />
+        <Card>
+          <CardHead title="Bill monthly rent" hint={`Adds rent for ${residents === 1 ? "your 1 resident" : `all ${residents} residents`} and emails each a link to pay. Anyone already billed for that month is skipped.`} />
+          <form action={billMonth} className="grid gap-3 p-5 pt-4 sm:p-6 sm:pt-4">
+            <label>
+              <Label>Month</Label>
+              <input type="month" name="month" defaultValue={nextValue} required className={`${input} mono`} />
+            </label>
+            <SubmitButton className={`${btnPrimary} w-full disabled:opacity-60`}>Bill rent</SubmitButton>
+          </form>
+        </Card>
       </div>
     </Page>
   );

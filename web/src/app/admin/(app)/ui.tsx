@@ -1,51 +1,119 @@
+import { Check } from "lucide-react";
 import { STATUS_LABEL, type Status } from "@/lib/labels";
 
-/** Notion-style page: generous top space, big title, quiet properties. */
-export function Page({ title, icon, actions, children, crumb }: { title: string; icon?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; crumb?: React.ReactNode }) {
+/**
+ * Dashboard kit. Same system as the public site: ink on oat, white surfaces,
+ * mono for facts, and amber only where a light is on (something new, open or owed).
+ */
+export function Page({ title, eyebrow, actions, children, crumb, wide = false }: { title: string; eyebrow?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; crumb?: React.ReactNode; wide?: boolean }) {
   return (
-    <main className="mx-auto w-full max-w-[1080px] px-5 pb-24 pt-8 sm:px-10 md:pt-14">
-      {crumb && <div className="mb-6 text-sm text-ink/50">{crumb}</div>}
-      <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          {icon && <div className="mb-3 text-ink/70">{icon}</div>}
-          <h1 className="text-[2.1rem] font-bold leading-tight tracking-[-0.02em]">{title}</h1>
+    <main className={`mx-auto w-full ${wide ? "max-w-[1240px]" : "max-w-[1080px]"} px-4 pb-16 pt-6 sm:px-8 md:pt-12`}>
+      <header className="mb-7 flex flex-wrap items-end justify-between gap-x-6 gap-y-4 md:mb-10">
+        <div className="min-w-0">
+          {(crumb || eyebrow) && <p className="eyebrow mb-2.5 flex items-center gap-2">{crumb ?? eyebrow}</p>}
+          <h1 className="display-2 text-[clamp(1.9rem,4.4vw,2.9rem)]">{title}</h1>
         </div>
-        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-      </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </header>
       {children}
     </main>
   );
 }
 
-const STATUS_STYLE: Record<Status, string> = {
-  NEW: "bg-porch/25 text-[#6e4b0c]",
-  CONTACTED: "bg-[#dfe7f0] text-[#2f4a66]",
-  TOUR: "bg-[#ebe2f2] text-[#5a3d73]",
-  APPROVED: "bg-[#dfeadb] text-[#2f5b2b]",
-  MOVED_IN: "bg-pine text-paper",
-  DECLINED: "bg-ink/[.07] text-ink/60",
-};
-export function StatusPill({ status }: { status: string }) {
-  const s = status as Status;
-  return <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[0.78rem] font-medium ${STATUS_STYLE[s] ?? ""}`}>{STATUS_LABEL[s] ?? status}</span>;
+/** White surface. Everything that can be read or tapped sits on one. */
+export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <section className={`rounded-2xl bg-paper ring-1 ring-line ${className}`}>{children}</section>;
 }
 
-export function ChargePill({ status, dueDate }: { status: string; dueDate: Date }) {
-  const overdue = status === "DUE" && dueDate.getTime() < Date.now() - 86400000;
-  const cls = status === "PAID" ? "bg-[#dfeadb] text-[#2f5b2b]" : status === "VOID" ? "bg-ink/[.07] text-ink/50 line-through" : overdue ? "bg-ember/15 text-ember" : "bg-porch/25 text-[#6e4b0c]";
-  return <span className={`inline-flex rounded-md px-2 py-0.5 text-[0.78rem] font-medium ${cls}`}>{status === "PAID" ? "Paid" : status === "VOID" ? "Void" : overdue ? "Overdue" : "Due"}</span>;
-}
-
-export function Prop({ label, children }: { label: string; children: React.ReactNode }) {
+export function CardHead({ title, hint, action }: { title: string; hint?: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[150px_1fr] items-center gap-3 py-1.5 text-[0.92rem]">
-      <dt className="text-ink/50">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
+    <div className="flex items-start justify-between gap-4 px-5 pt-5 sm:px-6">
+      <div>
+        <h2 className="text-[1.02rem] font-semibold tracking-[-0.02em]">{title}</h2>
+        {hint && <p className="mt-1 text-[0.88rem] leading-snug text-moss">{hint}</p>}
+      </div>
+      {action}
     </div>
   );
 }
 
-export const btn = "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[0.88rem] font-medium transition-[background-color,transform] duration-150 active:scale-[0.97]";
-export const btnPrimary = `${btn} bg-pine text-paper hover:bg-[#17301f]`;
-export const btnQuiet = `${btn} text-ink/70 ring-1 ring-line hover:bg-ink/[.04] hover:text-ink`;
-export const input = "h-9 w-full rounded-lg bg-white px-3 text-[0.92rem] ring-1 ring-line outline-none focus:ring-2 focus:ring-pine";
+export function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="px-5 py-9 text-center text-[0.92rem] text-moss sm:px-6">{children}</p>;
+}
+
+/* A request moves through four steps; the pips show how far along it is. */
+const STEP: Partial<Record<Status, number>> = { NEW: 1, CONTACTED: 2, TOUR: 3, APPROVED: 4 };
+export function StatusPill({ status }: { status: string }) {
+  const s = status as Status;
+  const n = STEP[s];
+  const label = STATUS_LABEL[s] ?? status;
+  if (s === "MOVED_IN")
+    return (
+      <span className="mono inline-flex h-6 items-center gap-1.5 rounded-full bg-ink px-2.5 text-[0.72rem] font-medium uppercase text-white">
+        <Check size={11} strokeWidth={3} /> {label}
+      </span>
+    );
+  if (s === "DECLINED") return <span className="mono inline-flex h-6 items-center rounded-full bg-ink/[.06] px-2.5 text-[0.72rem] font-medium uppercase text-moss">{label}</span>;
+  return (
+    <span className={`mono inline-flex h-6 items-center gap-2 whitespace-nowrap rounded-full px-2.5 text-[0.72rem] font-medium uppercase ${s === "NEW" ? "bg-porch-glow text-ink" : "bg-ink/[.06] text-ink"}`}>
+      <span className="flex gap-[3px]" aria-hidden>
+        {[1, 2, 3, 4].map((i) => (
+          <span key={i} className={`h-[7px] w-[5px] rounded-[1px] ${n && i <= n ? (s === "NEW" ? "bg-ink" : "bg-ink") : "bg-ink/15"}`} />
+        ))}
+      </span>
+      {label}
+    </span>
+  );
+}
+
+export const isOverdue = (c: { status: string; dueDate: Date }) => c.status === "DUE" && c.dueDate.getTime() < Date.now() - 86400000;
+
+export function ChargePill({ status, dueDate }: { status: string; dueDate: Date }) {
+  const overdue = isOverdue({ status, dueDate });
+  const base = "mono inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-[0.72rem] font-medium uppercase";
+  if (status === "PAID")
+    return (
+      <span className={`${base} bg-ink/[.06] text-ink`}>
+        <Check size={11} strokeWidth={3} /> Paid
+      </span>
+    );
+  if (status === "VOID") return <span className={`${base} bg-ink/[.06] text-moss line-through`}>Void</span>;
+  if (overdue) return <span className={`${base} bg-ember text-white`}>Overdue</span>;
+  return <span className={`${base} bg-porch-glow text-ink`}>Due</span>;
+}
+
+export function Prop({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7.5rem_1fr] items-baseline gap-3 py-3 text-[0.95rem] sm:grid-cols-[9.5rem_1fr]">
+      <dt className="text-[0.88rem] text-moss">{label}</dt>
+      <dd className="min-w-0 break-words">{children}</dd>
+    </div>
+  );
+}
+
+/** Banner for "that worked" and "that didn't". */
+export function Notice({ tone = "ok", children }: { tone?: "ok" | "warn"; children: React.ReactNode }) {
+  return (
+    <div role="status" className={`mb-6 flex items-start gap-3 rounded-2xl px-4 py-3.5 text-[0.93rem] leading-snug ${tone === "ok" ? "bg-ink text-white" : "bg-ember/10 text-ember ring-1 ring-ember/25"}`}>
+      {tone === "ok" && (
+        <span className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-full bg-porch text-ink">
+          <Check size={12} strokeWidth={3.5} />
+        </span>
+      )}
+      <p className="min-w-0">{children}</p>
+    </div>
+  );
+}
+
+export function Label({ children }: { children: React.ReactNode }) {
+  return <span className="mb-1.5 block text-[0.86rem] font-medium text-ink/75">{children}</span>;
+}
+
+export const btn =
+  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[0.9rem] font-medium transition-[background-color,transform,box-shadow] duration-150 ease-[var(--ease-out)] active:scale-[0.97] sm:h-10";
+export const btnPrimary = `${btn} bg-ink text-white hover:bg-[#2a2d2b]`;
+export const btnQuiet = `${btn} bg-paper text-ink ring-1 ring-line-strong hover:bg-ink/[.04]`;
+export const btnDanger = `${btn} bg-ember text-white hover:bg-[#a83e23]`;
+export const input =
+  "h-11 w-full rounded-xl bg-paper px-3.5 text-[1rem] ring-1 ring-line-strong outline-none transition-shadow placeholder:text-ink/35 focus:ring-2 focus:ring-ink sm:text-[0.95rem]";
+export const link = "font-medium underline decoration-line-strong underline-offset-4 hover:decoration-ink";

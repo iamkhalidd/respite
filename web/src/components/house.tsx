@@ -131,3 +131,57 @@ export function WindowRow({ states, size = 10 }: { states: BedState[]; size?: nu
     </span>
   );
 }
+
+/** The night drawing, static: used on dark panels in the dashboard and at the door (login). */
+export function HouseNight({ states, className = "", labels = false }: { states: BedState[]; className?: string; labels?: boolean }) {
+  const open = states.filter((s) => s === "open").length;
+  return (
+    <svg viewBox="0 0 400 310" className={className} role="img" aria-label={`The house at night. ${open} of ${states.length} windows lit for open beds.`}>
+      <defs>
+        <radialGradient id="hn-glow">
+          <stop offset="0%" stopColor="#ffd98f" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#f0a53a" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="hn-pane" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffe3a6" />
+          <stop offset="100%" stopColor="#f0a53a" />
+        </linearGradient>
+      </defs>
+      <g fill="none" stroke="rgb(255 255 255 / .55)" strokeWidth="0.9" strokeLinejoin="round" strokeLinecap="round">
+        <path d="M0 300 H400" stroke="rgb(255 255 255 / .18)" />
+        <rect x="40" y="104" width="320" height="196" fill="#101311" />
+        {Array.from({ length: 11 }).map((_, i) => (
+          <path key={i} d={`M40 ${118 + i * 17} H360`} stroke="rgb(255 255 255 / .06)" />
+        ))}
+        <path d="M24 108 L200 26 L376 108 Z" fill="#0b0d0c" />
+        <path d="M292 62 V36 H312 V72" fill="#0b0d0c" />
+        <path d="M176 104 V70 L200 52 L224 70 V104" fill="#101311" />
+        <path d="M150 196 L200 172 L250 196 Z" fill="#101311" />
+        <path d="M144 198 H256" />
+        <path d="M158 198 V292 M242 198 V292" />
+        <rect x="182" y="222" width="36" height="70" fill="#0b0d0c" />
+        <path d="M168 292 H232 V298 H168 Z" fill="#101311" />
+        <circle cx="200" cy="208" r="26" fill="url(#hn-glow)" stroke="none" />
+        <circle cx="200" cy="208" r="2.4" fill="#ffd98f" stroke="none" />
+        {WINDOWS.map((w, i) => {
+          const s = states[i] ?? "taken";
+          const lit = s === "open";
+          return (
+            <g key={i}>
+              <rect x={w.x} y={w.y} width={w.w} height={w.h} fill="#141815" />
+              {lit && <ellipse cx={w.x + w.w / 2} cy={w.y + w.h / 2} rx={w.w * 1.05} ry={w.h * 0.95} fill="url(#hn-glow)" stroke="none" />}
+              {s !== "taken" && <rect x={w.x} y={w.y} width={w.w} height={w.h} fill={lit ? "url(#hn-pane)" : "#f0a53a"} fillOpacity={lit ? 1 : 0.28} stroke="none" />}
+              <path d={`M${w.x + w.w / 2} ${w.y} V${w.y + w.h} M${w.x} ${w.y + w.h / 2} H${w.x + w.w}`} stroke={lit ? "rgb(11 13 12 / .55)" : "rgb(255 255 255 / .22)"} strokeWidth="1" />
+              <rect x={w.x} y={w.y} width={w.w} height={w.h} />
+              {labels && (
+                <text x={w.x + w.w / 2} y={w.y - 6} textAnchor="middle" fontSize="8" fill="rgb(255 255 255 / .45)" stroke="none" style={{ fontFamily: "var(--font-geist-mono)" }}>
+                  {i + 1}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}

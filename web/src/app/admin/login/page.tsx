@@ -1,5 +1,6 @@
 "use client";
 import { useActionState } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { login } from "../actions";
 import { Logo } from "@/components/site-chrome";
@@ -7,30 +8,43 @@ import { Logo } from "@/components/site-chrome";
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, null);
   return (
-    <main className="grid min-h-dvh place-items-center bg-oat px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-10 flex justify-center">
-          <Logo />
+    <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-night px-4 text-white">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[60vh] bg-[radial-gradient(50%_60%_at_50%_0%,rgb(240_165_58/0.16),transparent_70%)]" />
+      <div className="relative w-full max-w-sm">
+        <div className="mb-9 flex justify-center">
+          <Logo light />
         </div>
-        <form action={action} className="rounded-[28px] bg-paper p-7 shadow-[0_24px_60px_-30px_rgb(23_33_28/.4)] ring-1 ring-line">
-          <h1 className="text-xl font-semibold tracking-tight">Owner dashboard</h1>
-          <p className="mt-1 text-[0.95rem] text-ink/60">Enter the house password to manage rooms, requests and rent.</p>
+        <form action={action} className="rounded-3xl bg-white/[.05] p-6 ring-1 ring-white/10 sm:p-7">
+          <p className="mono text-[0.7rem] uppercase tracking-[0.02em] text-white/45">Owner dashboard</p>
+          <h1 className="mt-2 text-[1.5rem] font-semibold leading-tight tracking-[-0.03em]">Come on in.</h1>
+          <p className="mt-1.5 text-[0.93rem] leading-snug text-white/60">Rooms, requests and rent, all in one place.</p>
           <label className="mt-6 block">
-            <span className="mb-2 block text-sm font-medium text-ink/70">Password</span>
+            <span className="mb-1.5 block text-[0.86rem] font-medium text-white/75">House password</span>
             <input
               name="password"
               type="password"
               autoComplete="current-password"
               autoFocus
               required
-              className="h-12 w-full rounded-xl bg-oat px-4 outline-none ring-1 ring-line focus:ring-2 focus:ring-pine"
+              aria-invalid={!!state?.error}
+              className="h-12 w-full rounded-xl bg-white/[.07] px-4 text-[1rem] text-white outline-none ring-1 ring-white/15 transition-shadow focus:ring-2 focus:ring-porch"
             />
           </label>
-          {state?.error && <p role="alert" className="mt-3 text-sm font-medium text-ember">{state.error}</p>}
-          <button disabled={pending} className="btn btn-primary press mt-5 !h-12 w-full">
-            {pending ? <Loader2 size={18} className="animate-spin" /> : "Log in"}
+          {state?.error && (
+            <p role="alert" className="mt-3 text-[0.88rem] font-medium text-[#ff9c82]">
+              {state.error}
+            </p>
+          )}
+          <button disabled={pending} className="press mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-porch text-[1rem] font-medium text-ink transition-colors hover:bg-porch-glow disabled:opacity-70">
+            {pending && <Loader2 size={17} className="animate-spin" />} Log in
           </button>
         </form>
+        <p className="mt-6 text-center text-[0.86rem] text-white/45">
+          Not the owner?{" "}
+          <Link href="/" className="text-white/75 underline decoration-white/25 underline-offset-4 hover:text-white">
+            Back to the site
+          </Link>
+        </p>
       </div>
     </main>
   );

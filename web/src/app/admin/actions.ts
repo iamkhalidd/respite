@@ -42,16 +42,24 @@ export async function saveNotes(id: string, ownerNotes: string) {
 const monthLabel = (d: Date) => d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 const period = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
+export type FormState = { error?: string; ok?: string } | null;
+
 /** Approve → move in: creates the resident, assigns the bed, and bills deposit + first month. */
-export async function moveIn(requestId: string, form: FormData) {
+export async function moveIn(requestId: string, _: FormState, form: FormData): Promise<FormState> {
   await guard();
-  const req = await db.request.findUniqueOrThrow({ where: { id: requestId } });
-  const bedId = String(form.get("bedId"));
-  const bed = await db.bed.findUniqueOrThrow({ where: { id: bedId }, include: { room: true, resident: true } });
-  if (bed.resident?.active) throw new Error("That bed is taken.");
+  const req = await db.request.findUnique({ where: { id: requestId }, include: { resident: true } });
+  if (!req) return { error: "That request no longer exists." };
+  if (req.resident) redirect(`/admin/residents/${req.resident.id}`);
+  const bedId = String(form.get("bedId") ?? "");
+  const bed = bedId ? await db.bed.findUnique({ where: { id: bedId }, include: { room: true, resident: true } }) : null;
+  if (!bed) return { error: "Choose a bed." };
+  if (bed.resident?.active) return { error: `${bed.resident.name} still lives in ${bed.label}. Move them out first, then try again.` };
   const date = new Date(String(form.get("moveInDate")) + "T00:00:00Z");
-  const rentCents = Math.round(Number(form.get("rent")) * 100) || bed.room.rentCents;
-  const depositCents = Math.round(Number(form.get("deposit")) * 100);
+  if (Number.isNaN(date.getTime())) return { error: "Choose a move-in date." };
+  const rentCents = Math.round(Number(form.get("rent")) * 100);
+  const depositCents = Math.round(Number(form.get("deposit")) * 100) || 0;
+  if (!(rentCents > 0)) return { error: "Enter the monthly rent." };
+  if (depositCents < 0) return { error: "The deposit can't be less than zero." };
 
   if (bed.resident) await db.resident.update({ where: { id: bed.resident.id }, data: { bedId: null } });
   const resident = await db.resident.create({
@@ -104,19 +112,26 @@ export async function setBedOpening(bedId: string, form: FormData) {
   refresh();
 }
 
-export async function uploadPhoto(roomId: string, form: FormData) {
+export async function uploadPhoto(roomId: string, _: FormState, form: FormData): Promise<FormState> {
   await guard();
   const file = form.get("photo") as File | null;
-  if (!file || file.size === 0) return;
-  if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) throw new Error("Use a JPG or PNG under 8 MB.");
+  if (!file || file.size === 0) return { error: "Choose a photo first." };
+  if (!file.type.startsWith("image/")) return { error: "That file isn't a picture. Use a JPG, PNG or WebP." };
+  if (file.size > 8 * 1024 * 1024) return { error: "That photo is over 8 MB. Use a smaller one." };
   const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const name = `${roomId}-${Date.now()}.${ext}`;
-  const dir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, name), Buffer.from(await file.arrayBuffer()));
+  try {
+    const dir = path.join(process.cwd(), "public", "uploads");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, name), Buffer.from(await file.arrayBuffer()));
+  } catch (e) {
+    console.error("Photo upload failed", e);
+    return { error: "The photo couldn't be saved on this server." };
+  }
   const room = await db.room.findUniqueOrThrow({ where: { id: roomId } });
   await db.room.update({ where: { id: roomId }, data: { photos: JSON.stringify([...parseList(room.photos), `/uploads/${name}`]) } });
   refresh();
+  return { ok: "Photo added." };
 }
 
 export async function removePhoto(roomId: string, src: string) {
@@ -177,5 +192,37 @@ export async function moveOut(residentId: string) {
   await guard();
   await db.resident.update({ where: { id: residentId }, data: { active: false, moveOutDate: new Date(), bedId: null } });
   refresh();
-  redirect("/admin/residents");
+  redirect("/admin/residents?left=1");
+}
+
+export async function updateResident(residentId: string, _: FormState, form: FormData): Promise<FormState> {
+  await guard();
+  const name = String(form.get("name") ?? "").trim();
+  const phone = String(form.get("phone") ?? "").trim();
+  const email = String(form.get("email") ?? "").trim().toLowerCase();
+  const rentCents = Math.round(Number(form.get("rent")) * 100);
+  if (!name) return { error: "Enter their name." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "That email doesn't look right." };
+  if (!(rentCents > 0)) return { error: "Enter the monthly rent." };
+  await db.resident.update({ where: { id: residentId }, data: { name: name.slice(0, 120), phone: phone.slice(0, 40) || null, email: email || null, rentCents } });
+  refresh();
+  return { ok: "Saved" };
+}
+
+/** Emails the resident what they owe and their pay link. Used for the first send and for reminders. */
+export async function sendPayLink(residentId: string): Promise<FormState> {
+  await guard();
+  const r = await db.resident.findUnique({ where: { id: residentId }, include: { charges: { where: { status: "DUE" }, orderBy: { dueDate: "asc" } } } });
+  if (!r) return { error: "That resident no longer exists." };
+  if (!r.email) return { error: "No email on file. Text them the link instead." };
+  const owed = r.charges.reduce((n, c) => n + c.amountCents, 0);
+  const link = `${siteUrl()}/portal/${r.portalToken}`;
+  await sendEmail({
+    to: r.email,
+    subject: owed ? `You have ${money(owed)} to pay at Respite for the Weary` : "Your Respite for the Weary pay link",
+    text: owed
+      ? `Hi ${r.name.split(" ")[0]},\n\nHere is what is waiting to be paid:\n${r.charges.map((c) => `• ${c.label}: ${money(c.amountCents)}`).join("\n")}\n\nTotal: ${money(owed)}\nPay here: ${link}\n\nIf you already paid in person, you can ignore this.`
+      : `Hi ${r.name.split(" ")[0]},\n\nYou're paid up. This is the link where you'll pay rent each month:\n${link}`,
+  });
+  return { ok: `Sent to ${r.email}` };
 }

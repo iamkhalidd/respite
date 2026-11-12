@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut } from "lucide-react";
+import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut, Bell } from "lucide-react";
 import type { BedState } from "@/lib/availability";
 import { logout } from "../actions";
 
@@ -11,7 +11,10 @@ const ITEMS = [
   { href: "/admin/rooms", label: "Rooms & beds", short: "Rooms", icon: BedDouble },
   { href: "/admin/residents", label: "Residents", short: "Residents", icon: Users },
   { href: "/admin/payments", label: "Payments", short: "Payments", icon: CreditCard, badge: "overdue" },
+  { href: "/admin/notifications", label: "Notifications", short: "Alerts", icon: Bell, badge: "unread", rail: true },
 ] as const;
+// the phone tab bar keeps five; notifications sit behind the bell in the top bar instead
+const TABS = ITEMS.filter((it) => !("rail" in it));
 
 function Mark() {
   return (
@@ -40,9 +43,27 @@ function Windows({ beds }: { beds: BedState[] }) {
   );
 }
 
-export function Sidebar({ newRequests, overdue, beds }: { newRequests: number; overdue: number; beds: BedState[] }) {
+type Props = { newRequests: number; overdue: number; beds: BedState[]; unread: number; failedEmails: number };
+
+/** The bell: amber when something new came in, ember when an email couldn't be sent. */
+function BellLink({ unread, failedEmails, className }: { unread: number; failedEmails: number; className: string }) {
+  const n = unread + failedEmails;
+  const label = n ? `Notifications, ${unread} unread${failedEmails ? `, ${failedEmails} emails failed` : ""}` : "Notifications";
+  return (
+    <Link href={failedEmails && !unread ? "/admin/notifications?tab=email" : "/admin/notifications"} aria-label={label} className={className}>
+      <span className="relative">
+        <Bell size={18} />
+        {n > 0 && (
+          <span className={`absolute -right-[3px] -top-[2px] h-2 w-2 rounded-full ring-2 ring-night ${failedEmails ? "bg-ember" : "bg-porch shadow-[0_0_8px_1px_rgb(240_165_58/.6)]"}`} />
+        )}
+      </span>
+    </Link>
+  );
+}
+
+export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Props) {
   const path = usePathname();
-  const count = { requests: newRequests, overdue } as const;
+  const count = { requests: newRequests, overdue, unread: unread + failedEmails } as const;
   const isActive = (href: string, exact?: boolean) => (exact ? path === href : path.startsWith(href));
   const open = beds.filter((b) => b === "open").length;
 
@@ -59,6 +80,7 @@ export function Sidebar({ newRequests, overdue, beds }: { newRequests: number; o
             <Windows beds={beds} />
             <span className="mono text-[0.72rem]">{open}/{beds.length}</span>
           </span>
+          <BellLink unread={unread} failedEmails={failedEmails} className="press grid h-10 w-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white" />
           <Link href="/" target="_blank" aria-label="View public site" className="press grid h-10 w-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
             <ArrowUpRight size={19} />
           </Link>
@@ -96,7 +118,7 @@ export function Sidebar({ newRequests, overdue, beds }: { newRequests: number; o
                     <Icon size={17} strokeWidth={1.8} className={active ? "text-porch" : "text-white/45 group-hover:text-white/80"} />
                     <span className="flex-1">{label}</span>
                     {n > 0 && (
-                      <span className={`mono tabular grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[0.7rem] font-semibold ${"badge" in it && it.badge === "overdue" ? "bg-ember text-white" : "bg-porch text-ink"}`}>
+                      <span className={`mono tabular grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[0.7rem] font-semibold ${"badge" in it && (it.badge === "overdue" || (it.badge === "unread" && failedEmails)) ? "bg-ember text-white" : "bg-porch text-ink"}`}>
                         {n}
                       </span>
                     )}
@@ -133,7 +155,7 @@ export function Sidebar({ newRequests, overdue, beds }: { newRequests: number; o
       {/* Phone: tab bar within thumb reach */}
       <nav aria-label="Dashboard" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
         <ul className="grid grid-cols-5">
-          {ITEMS.map(({ href, short, icon: Icon, ...it }) => {
+          {TABS.map(({ href, short, icon: Icon, ...it }) => {
             const active = isActive(href, "exact" in it && it.exact);
             const n = "badge" in it ? count[it.badge] : 0;
             return (

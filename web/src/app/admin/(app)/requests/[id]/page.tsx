@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, Mail, MessageSquare, Phone } from "lucide-react";
-import { db } from "@/lib/db";
-import { getBeds } from "@/lib/availability";
+import { admin, orNull } from "@/lib/api";
+import type { BedView, Request, Resident, Room } from "@/lib/types";
 import { longDate, shortDate, timeAgo } from "@/lib/format";
 import { FOR_WHOM, MOVE_IN, PAYMENT, PROGRAMS } from "@/lib/labels";
 import { Page, Card, CardHead, Prop, StatusPill, btnPrimary, btnQuiet, link } from "../../ui";
@@ -12,9 +12,12 @@ const digits = (p: string) => p.replace(/[^\d+]/g, "");
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const r = await db.request.findUnique({ where: { id }, include: { room: true, resident: true } });
+  const [r, beds, rooms] = await Promise.all([
+    orNull(admin.get<Request & { room: Room | null; resident: Resident | null }>(`/admin/requests/${encodeURIComponent(id)}`)),
+    admin.get<BedView[]>("/admin/beds"),
+    admin.get<Room[]>("/admin/rooms"),
+  ]);
   if (!r) notFound();
-  const [beds, rooms] = await Promise.all([getBeds(), db.room.findMany()]);
   const roomOf = (slug: string) => rooms.find((x) => x.slug === slug)!;
   // a bed can be moved into only when nobody lives in it; beds someone is leaving are listed but locked
   const options: BedOption[] = beds

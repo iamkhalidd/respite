@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { admin } from "@/lib/api";
+import type { Bed, Charge, Resident, Room } from "@/lib/types";
 import { money, shortDate } from "@/lib/format";
 import { Page, Card, Empty, Notice, isOverdue, btnPrimary } from "../ui";
 
 export default async function Residents({ searchParams }: { searchParams: Promise<{ left?: string }> }) {
   const { left } = await searchParams;
-  const residents = await db.resident.findMany({
-    orderBy: [{ active: "desc" }, { moveInDate: "desc" }],
-    include: { bed: { include: { room: true } }, charges: { where: { status: "DUE" } } },
-  });
+  // active first, newest move-in first; charges are only the unpaid ones
+  const residents = await admin.get<(Resident & { bed: (Bed & { room: Room }) | null; charges: Charge[] })[]>("/admin/residents");
   const current = residents.filter((r) => r.active);
   const past = residents.filter((r) => !r.active);
 

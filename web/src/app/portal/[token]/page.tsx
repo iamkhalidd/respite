@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Check, Phone } from "lucide-react";
-import { db } from "@/lib/db";
+import { api, orNull } from "@/lib/api";
+import type { Charge, Resident, Bed, Room } from "@/lib/types";
 import { longDate, money, shortDate } from "@/lib/format";
 import { PHONE, PHONE_HREF } from "@/lib/labels";
-import { stripe, stripeEnabled } from "@/lib/stripe";
-import { settleSession } from "@/lib/payments";
 import { Logo } from "@/components/site-chrome";
 import { startCheckout } from "./actions";
 import { PayButton } from "./pay-button";
@@ -18,17 +17,16 @@ export default async function Portal({ params, searchParams }: { params: Promise
   const { token } = await params;
   const { session_id, paid } = await searchParams;
 
+  const path = `/portal/${encodeURIComponent(token)}`;
   let justPaid = Boolean(paid);
-  if (session_id && stripeEnabled()) {
+  if (session_id) {
     try {
-      justPaid = await settleSession(await stripe().checkout.sessions.retrieve(session_id));
+      justPaid = (await api.post<{ paid: boolean }>(`${path}/settle`, { sessionId: session_id })).paid || justPaid;
     } catch {}
   }
 
-  const r = await db.resident.findUnique({
-    where: { portalToken: token },
-    include: { bed: { include: { room: true } }, charges: { where: { status: { not: "VOID" } }, orderBy: { dueDate: "desc" } } },
-  });
+  type PortalView = Omit<Resident, "portalToken"> & { bed: (Bed & { room: Room }) | null; charges: Charge[]; stripeEnabled: boolean };
+  const r = await orNull(api.get<PortalView>(path));
   if (!r) notFound();
   const due = r.charges.filter((c) => c.status === "DUE").sort((a, b) => +a.dueDate - +b.dueDate);
   const history = r.charges.filter((c) => c.status === "PAID");
@@ -84,7 +82,7 @@ export default async function Portal({ params, searchParams }: { params: Promise
               <form action={pay} className="p-6 sm:p-8">
                 <input type="hidden" name="charges" value={due.map((c) => c.id).join(",")} />
                 <PayButton>Pay {money(total)}</PayButton>
-                <p className="mt-3 text-center text-[0.8rem] text-white/50">{stripeEnabled() ? "Card or bank account. Secured by Stripe." : "Test mode. No real money moves."}</p>
+                <p className="mt-3 text-center text-[0.8rem] text-white/50">{r.stripeEnabled ? "Card or bank account. Secured by Stripe." : "Test mode. No real money moves."}</p>
               </form>
             </div>
           )}

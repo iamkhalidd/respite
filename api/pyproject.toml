@@ -1,0 +1,29 @@
+[project]
+name = "respite-api"
+version = "0.1.0"
+description = "Backend for Respite for the Weary: owner accounts, rooms, requests, residents and rent."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "sqlalchemy>=2.0.36",
+  "psycopg[binary]>=3.2",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "email-validator>=2.2",
+  "pyjwt>=2.10",
+  "bcrypt>=4.2",
+  "httpx>=0.28",
+  "python-multipart>=0.0.18",
+  "stripe>=11.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+package = false

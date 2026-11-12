@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { admin } from "@/lib/api";
 import { money } from "@/lib/format";
-import { stripeEnabled } from "@/lib/stripe";
+import type { Charge } from "@/lib/types";
 import { billMonth } from "../../actions";
 import { Page, Card, CardHead, Notice, Label, btnPrimary, input } from "../ui";
 import { SubmitButton } from "../submit";
@@ -22,31 +22,26 @@ export default async function Payments({ searchParams }: { searchParams: Promise
   const sp = await searchParams;
   const tab = TABS.some(([k]) => k === sp.tab) ? (sp.tab as string) : "due";
   const billed = sp.billed;
-  const where = tab === "paid" ? { status: "PAID" } : tab === "all" ? {} : { status: "DUE" };
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const lateBefore = new Date(Date.now() - 86400000);
-
-  const [charges, due, late, collected, residents] = await Promise.all([
-    db.charge.findMany({
-      where,
-      orderBy: tab === "paid" ? { paidAt: "desc" } : tab === "all" ? { dueDate: "desc" } : { dueDate: "asc" },
-      include: { resident: { select: { id: true, name: true, email: true } } },
-      take: 200,
-    }),
-    db.charge.aggregate({ where: { status: "DUE" }, _sum: { amountCents: true }, _count: true }),
-    db.charge.aggregate({ where: { status: "DUE", dueDate: { lt: lateBefore } }, _sum: { amountCents: true }, _count: true }),
-    db.charge.aggregate({ where: { status: "PAID", paidAt: { gte: monthStart } }, _sum: { amountCents: true } }),
-    db.resident.count({ where: { active: true } }),
+  type Totals = { totalCents: number; count: number };
+  const [{ charges, due, late, collectedThisMonthCents, activeResidents: residents }, { stripeEnabled }] = await Promise.all([
+    admin.get<{
+      charges: (Charge & { resident: { id: string; name: string; email: string | null } })[];
+      due: Totals;
+      late: Totals;
+      collectedThisMonthCents: number;
+      activeResidents: number;
+    }>(`/admin/charges?tab=${tab}`),
+    admin.get<{ stripeEnabled: boolean }>("/admin/config"),
   ]);
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const nextValue = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
-  const lateSum = late._sum.amountCents ?? 0;
+  const lateSum = late.totalCents;
 
   const facts: [string, string, string, boolean][] = [
-    ["Waiting to be paid", money(due._sum.amountCents ?? 0), `${due._count} ${due._count === 1 ? "charge" : "charges"}`, false],
-    ["Past due", money(lateSum), late._count ? `${late._count} ${late._count === 1 ? "charge" : "charges"}` : "Nothing late", lateSum > 0],
-    [`Collected in ${now.toLocaleDateString("en-US", { month: "long", timeZone: "America/New_York" })}`, money(collected._sum.amountCents ?? 0), "So far this month", false],
+    ["Waiting to be paid", money(due.totalCents), `${due.count} ${due.count === 1 ? "charge" : "charges"}`, false],
+    ["Past due", money(lateSum), late.count ? `${late.count} ${late.count === 1 ? "charge" : "charges"}` : "Nothing late", lateSum > 0],
+    [`Collected in ${now.toLocaleDateString("en-US", { month: "long", timeZone: "America/New_York" })}`, money(collectedThisMonthCents), "So far this month", false],
   ];
 
   return (
@@ -54,7 +49,7 @@ export default async function Payments({ searchParams }: { searchParams: Promise
       {billed !== undefined && (
         <Notice>{Number(billed) ? `Billed ${billed} ${billed === "1" ? "resident" : "residents"}. Anyone with an email on file was sent a link to pay.` : "Everyone was already billed for that month. Nothing was added."}</Notice>
       )}
-      {!stripeEnabled() && <Notice tone="warn">Online payments are in test mode. Residents can try the pay page, but no real money moves until your Stripe keys are added.</Notice>}
+      {!stripeEnabled && <Notice tone="warn">Online payments are in test mode. Residents can try the pay page, but no real money moves until your Stripe keys are added.</Notice>}
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="grid min-w-0 gap-5">

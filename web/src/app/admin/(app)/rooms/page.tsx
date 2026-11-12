@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { getRoomsWithBeds } from "@/lib/availability";
+import { admin } from "@/lib/api";
+import type { RoomWithBeds } from "@/lib/types";
 import { money, parseList } from "@/lib/format";
 import { RoomImage } from "@/components/room-art";
 import { WindowRow } from "@/components/house";
@@ -8,7 +9,7 @@ import { availabilityText } from "@/components/room-card";
 import { Page } from "../ui";
 
 export default async function RoomsAdmin() {
-  const rooms = await getRoomsWithBeds();
+  const rooms = await admin.get<RoomWithBeds[]>("/admin/rooms");
   const beds = rooms.reduce((n, r) => n + r.states.length, 0);
   const open = rooms.reduce((n, r) => n + r.states.filter((s) => s.state === "open").length, 0);
   return (

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone } from "lucide-react";
-import { db } from "@/lib/db";
-import { siteUrl } from "@/lib/email";
+import { admin, orNull } from "@/lib/api";
+import { siteUrl } from "@/lib/site";
+import type { Bed, Charge, Request, Resident, Room } from "@/lib/types";
 import { longDate, money } from "@/lib/format";
 import { addCharge, moveOut, sendPayLink } from "../../../actions";
 import { Page, Card, CardHead, Notice, Label, Prop, isOverdue, btnPrimary, btnQuiet, input, link } from "../../ui";
@@ -14,10 +15,9 @@ import { PayLink, EditResident } from "./client";
 export default async function ResidentDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ welcome?: string }> }) {
   const { id } = await params;
   const { welcome } = await searchParams;
-  const r = await db.resident.findUnique({
-    where: { id },
-    include: { bed: { include: { room: true } }, charges: { orderBy: { dueDate: "desc" } }, request: true },
-  });
+  const r = await orNull(
+    admin.get<Resident & { bed: (Bed & { room: Room }) | null; charges: Charge[]; request: Request | null }>(`/admin/residents/${encodeURIComponent(id)}`),
+  );
   if (!r) notFound();
   const due = r.charges.filter((c) => c.status === "DUE");
   const owed = due.reduce((s, c) => s + c.amountCents, 0);

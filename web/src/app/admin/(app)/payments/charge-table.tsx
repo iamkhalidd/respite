@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Charge } from "@prisma/client";
+import type { Charge } from "@/lib/types";
 import { money, shortDate } from "@/lib/format";
 import { recordPayment, sendPayLink, voidCharge } from "../../actions";
 import { ChargePill, Empty } from "../ui";

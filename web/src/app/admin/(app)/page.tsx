@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { db } from "@/lib/db";
-import { getBeds } from "@/lib/availability";
+import { admin } from "@/lib/api";
+import type { BedView, Charge, Request, Resident, Room } from "@/lib/types";
 import { money, timeAgo, shortDate } from "@/lib/format";
 import { PROGRAMS, type Program } from "@/lib/labels";
 import { HouseNight } from "@/components/house";
@@ -9,13 +9,12 @@ import { Card, CardHead, Empty, StatusPill, ChargePill, isOverdue } from "./ui";
 
 export default async function Overview() {
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [beds, active, due, paidThisMonth] = await Promise.all([
-    getBeds(),
-    db.request.findMany({ where: { status: { in: ["NEW", "CONTACTED", "TOUR", "APPROVED"] } }, orderBy: { createdAt: "desc" }, include: { room: true } }),
-    db.charge.findMany({ where: { status: "DUE" }, include: { resident: true }, orderBy: { dueDate: "asc" } }),
-    db.charge.aggregate({ where: { status: "PAID", paidAt: { gte: monthStart } }, _sum: { amountCents: true } }),
-  ]);
+  const { beds, requests: active, due, collectedThisMonthCents } = await admin.get<{
+    beds: BedView[];
+    requests: (Request & { room: Room | null })[];
+    due: (Charge & { resident: Resident })[];
+    collectedThisMonthCents: number;
+  }>("/admin/overview");
   const open = beds.filter((b) => b.state === "open").length;
   const fresh = active.filter((r) => r.status === "NEW").length;
   const owed = due.reduce((n, c) => n + c.amountCents, 0);
@@ -38,7 +37,7 @@ export default async function Overview() {
     ["Open beds", `${open}/${beds.length}`, "/admin/rooms"],
     ["Active requests", String(active.length), "/admin/requests"],
     ["Waiting to be paid", money(owed), "/admin/payments"],
-    ["Collected this month", money(paidThisMonth._sum.amountCents ?? 0), "/admin/payments?tab=paid"],
+    ["Collected this month", money(collectedThisMonthCents), "/admin/payments?tab=paid"],
   ];
 
   return (

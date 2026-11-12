@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { admin } from "@/lib/api";
+import type { Request, Room } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { MOVE_IN, PROGRAMS, STATUS_LABEL, type Program, type Status } from "@/lib/labels";
 import { Page, Card, Empty, StatusPill } from "../ui";
@@ -14,7 +15,7 @@ const HINT: Record<string, string> = {
 
 export default async function Requests({ searchParams }: { searchParams: Promise<{ view?: string; s?: string }> }) {
   const { view, s } = await searchParams;
-  const all = await db.request.findMany({ orderBy: { createdAt: "desc" }, include: { room: true } });
+  const all = await admin.get<(Request & { room: Room | null })[]>("/admin/requests");
   const closed = all.filter((r) => r.status === "MOVED_IN" || r.status === "DECLINED");
   const by = (col: Status) => all.filter((r) => r.status === col);
   // on a phone one step shows at a time; start on the first step that has anyone in it

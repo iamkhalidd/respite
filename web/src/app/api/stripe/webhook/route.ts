@@ -1,19 +1,21 @@
-import type Stripe from "stripe";
-import { stripe, stripeEnabled } from "@/lib/stripe";
-import { settleSession } from "@/lib/payments";
+import { revalidatePath } from "next/cache";
+import { API_URL } from "@/lib/api";
 
-/** Stripe → marks charges paid, including bank (ACH) payments that clear days later. */
+export const dynamic = "force-dynamic";
+
+/** Stripe → API, untouched: the API checks the signature against the exact raw body. */
 export async function POST(req: Request) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!stripeEnabled() || !secret) return new Response("Not configured", { status: 404 });
-  let event: Stripe.Event;
+  let res: Response;
   try {
-    event = stripe().webhooks.constructEvent(await req.text(), req.headers.get("stripe-signature") ?? "", secret);
+    res = await fetch(`${API_URL}/stripe/webhook`, {
+      method: "POST",
+      headers: { "content-type": req.headers.get("content-type") ?? "application/json", "stripe-signature": req.headers.get("stripe-signature") ?? "" },
+      body: await req.text(),
+      cache: "no-store",
+    });
   } catch {
-    return new Response("Bad signature", { status: 400 });
+    return new Response("API unreachable", { status: 503 }); // Stripe retries
   }
-  if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-    await settleSession(event.data.object as Stripe.Checkout.Session);
-  }
-  return Response.json({ received: true });
+  if (res.ok) revalidatePath("/", "layout");
+  return new Response(await res.text(), { status: res.status });
 }

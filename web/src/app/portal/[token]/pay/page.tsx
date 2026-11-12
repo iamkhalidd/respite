@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { FlaskConical } from "lucide-react";
-import { db } from "@/lib/db";
+import { api, orNull } from "@/lib/api";
+import type { Charge } from "@/lib/types";
 import { money } from "@/lib/format";
-import { stripeEnabled } from "@/lib/stripe";
 import { Logo } from "@/components/site-chrome";
 import { demoPay } from "../actions";
 import { PayButton } from "../pay-button";
@@ -13,11 +13,11 @@ export const metadata = { title: "Test payment", robots: { index: false } };
 /** Stand-in for Stripe Checkout while the site runs without payment keys. */
 export default async function DemoPay({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ c?: string }> }) {
   const { token } = await params;
-  if (stripeEnabled()) redirect(`/portal/${token}`);
   const ids = String((await searchParams).c ?? "").split(",").filter(Boolean);
-  const r = await db.resident.findUnique({ where: { portalToken: token }, include: { charges: { where: { id: { in: ids }, status: "DUE" } } } });
+  if (!ids.length) redirect(`/portal/${token}`);
+  const r = await orNull(api.get<{ name: string; charges: Charge[]; stripeEnabled: boolean }>(`/portal/${encodeURIComponent(token)}/due?ids=${encodeURIComponent(ids.join(","))}`));
   if (!r) notFound();
-  if (!r.charges.length) redirect(`/portal/${token}`);
+  if (r.stripeEnabled || !r.charges.length) redirect(`/portal/${token}`);
   const total = r.charges.reduce((s, c) => s + c.amountCents, 0);
 
   return (

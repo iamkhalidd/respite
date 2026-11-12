@@ -19,12 +19,24 @@ export default function LoginPage() {
           <h1 className="mt-2 text-[1.5rem] font-semibold leading-tight tracking-[-0.03em]">Come on in.</h1>
           <p className="mt-1.5 text-[0.93rem] leading-snug text-white/60">Rooms, requests and rent, all in one place.</p>
           <label className="mt-6 block">
-            <span className="mb-1.5 block text-[0.86rem] font-medium text-white/75">House password</span>
+            <span className="mb-1.5 block text-[0.86rem] font-medium text-white/75">Email</span>
+            <input
+              name="email"
+              type="email"
+              autoComplete="username"
+              defaultValue={state?.email}
+              autoFocus
+              required
+              aria-invalid={!!state?.error}
+              className="h-12 w-full rounded-xl bg-white/[.07] px-4 text-[1rem] text-white outline-none ring-1 ring-white/15 transition-shadow focus:ring-2 focus:ring-porch"
+            />
+          </label>
+          <label className="mt-4 block">
+            <span className="mb-1.5 block text-[0.86rem] font-medium text-white/75">Password</span>
             <input
               name="password"
               type="password"
               autoComplete="current-password"
-              autoFocus
               required
               aria-invalid={!!state?.error}
               className="h-12 w-full rounded-xl bg-white/[.07] px-4 text-[1rem] text-white outline-none ring-1 ring-white/15 transition-shadow focus:ring-2 focus:ring-porch"

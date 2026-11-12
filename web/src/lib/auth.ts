@@ -1,34 +1,18 @@
+import "server-only";
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "crypto";
+import { SESSION_COOKIE } from "./api";
 
-const COOKIE = "rw_admin";
-const secret = () => process.env.SESSION_SECRET || "dev-secret";
-
-function sign(value: string) {
-  return createHmac("sha256", secret()).update(value).digest("base64url");
+/** Keeps the API's login token in an httpOnly cookie so page code and the browser never see it. */
+export async function setSession(token: string, expiresAt: Date) {
+  (await cookies()).set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    expires: expiresAt,
+  });
 }
 
-export function makeSessionValue() {
-  const exp = String(Date.now() + 1000 * 60 * 60 * 24 * 7);
-  return `${exp}.${sign(exp)}`;
+export async function clearSession() {
+  (await cookies()).delete(SESSION_COOKIE);
 }
-
-export function isValidSession(value?: string) {
-  if (!value) return false;
-  const [exp, sig] = value.split(".");
-  if (!exp || !sig || Number(exp) < Date.now()) return false;
-  const a = Buffer.from(sig), b = Buffer.from(sign(exp));
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-export async function isAdmin() {
-  return isValidSession((await cookies()).get(COOKIE)?.value);
-}
-
-export function checkPassword(input: string) {
-  const expected = process.env.ADMIN_PASSWORD || "";
-  const a = Buffer.from(input), b = Buffer.from(expected);
-  return expected.length > 0 && a.length === b.length && timingSafeEqual(a, b);
-}
-
-export const SESSION_COOKIE = COOKIE;

@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowUpRight, X } from "lucide-react";
-import { db } from "@/lib/db";
+import { admin, orNull } from "@/lib/api";
+import type { Bed, Resident, Room } from "@/lib/types";
 import { parseList } from "@/lib/format";
 import { saveRoom, setBedOpening, removePhoto } from "../../../actions";
 import { Page, Card, CardHead, Label, btnPrimary, btnQuiet, input, link } from "../../ui";
@@ -11,7 +12,10 @@ import { PhotoUpload } from "./upload";
 
 export default async function RoomEdit({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const room = await db.room.findUnique({ where: { id }, include: { beds: { include: { resident: true } } } });
+  const [room, { canUploadPhotos }] = await Promise.all([
+    orNull(admin.get<Room & { beds: (Bed & { resident: Resident | null })[] }>(`/admin/rooms/${encodeURIComponent(id)}`)),
+    admin.get<{ canUploadPhotos: boolean }>("/admin/config"),
+  ]);
   if (!room) notFound();
   const photos = parseList(room.photos);
   const beds = [...room.beds].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
@@ -50,7 +54,7 @@ export default async function RoomEdit({ params }: { params: Promise<{ id: strin
                   </form>
                 </div>
               ))}
-              {process.env.SHOWCASE ? (
+              {process.env.SHOWCASE || !canUploadPhotos ? (
                 <div className="flex aspect-[4/3] items-center justify-center rounded-xl border border-dashed border-line-strong p-3 text-center text-[0.82rem] leading-snug text-moss">Adding photos is switched on in the live version.</div>
               ) : (
                 <PhotoUpload roomId={room.id} />

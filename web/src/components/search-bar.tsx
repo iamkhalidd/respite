@@ -39,7 +39,17 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
   const router = useRouter();
   const [values, setValues] = useState<Record<Field, string>>({ program: "", kind: "", when: "", ...initial });
   const [open, setOpen] = useState<Field | null>(null);
+  // near the bottom of the screen (as in the hero) the menu opens upward, so nobody has to scroll to reach it
+  const [up, setUp] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+
+  function toggle(f: Field, el: HTMLElement) {
+    if (open === f) return setOpen(null);
+    const r = el.getBoundingClientRect();
+    const need = 50 + OPTIONS[f].items.length * 64; // menu height, roughly
+    setUp(window.innerHeight - r.bottom < need && r.top > need);
+    setOpen(f);
+  }
 
   useEffect(() => {
     const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(null);
@@ -78,7 +88,7 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
                 type="button"
                 aria-expanded={active}
                 aria-haspopup="listbox"
-                onClick={() => setOpen(active ? null : f)}
+                onClick={(e) => toggle(f, e.currentTarget)}
                 className={`press w-full rounded-full px-5 py-2.5 text-left transition-colors ${
                   active ? "bg-paper shadow-[0_6px_24px_-8px_rgb(23_33_28/.3)]" : "hover:bg-ink/5"
                 }`}
@@ -92,7 +102,7 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
                 <ul
                   role="listbox"
                   aria-label={o.label}
-                  className="absolute left-0 top-[calc(100%+10px)] z-30 w-[min(320px,calc(100vw-2rem))] origin-top-left rounded-3xl bg-paper p-2 shadow-[0_24px_60px_-16px_rgb(23_33_28/.35)] ring-1 ring-line [animation:pop_180ms_var(--ease-out)]"
+                  className={`absolute left-0 z-30 w-[min(320px,calc(100vw-2rem))] ${up ? "bottom-[calc(100%+10px)] origin-bottom-left" : "top-[calc(100%+10px)] origin-top-left"} rounded-3xl bg-paper p-2 shadow-[0_24px_60px_-16px_rgb(23_33_28/.35)] ring-1 ring-line [animation:pop_180ms_var(--ease-out)]`}
                 >
                   {o.items.map(([v, label, hint]) => (
                     <li key={v || "any"}>

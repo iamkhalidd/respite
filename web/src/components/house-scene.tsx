@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
 import type { BedState } from "@/lib/availability";
 
 /**
@@ -37,9 +37,22 @@ export function HouseScene({ states, children }: { states: BedState[]; children:
   const reduce = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
 
-  const headY = useTransform(scrollYProgress, (v) => `${-30 * seg(v, 0, 0.4)}%`);
-  const headO = useTransform(scrollYProgress, (v) => 1 - seg(v, 0, 0.28));
-  const capO = useTransform(scrollYProgress, (v) => seg(v, 0.66, 0.8));
+  // While a search menu is open the headline holds still and stays visible, so scrolling to reach
+  // an option doesn't fade it away. It eases back to the scroll position once the menu closes.
+  const content = useRef<HTMLDivElement>(null);
+  const hold = useMotionValue(0);
+  useEffect(() => {
+    const el = content.current;
+    if (!el) return;
+    const check = () => animate(hold, el.querySelector('[aria-expanded="true"]') ? 1 : 0, { duration: 0.35, ease: [0.23, 1, 0.32, 1] });
+    const mo = new MutationObserver(check);
+    mo.observe(el, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
+    return () => mo.disconnect();
+  }, [hold]);
+  // the fade waits a beat, so a small scroll doesn't start it
+  const headY = useTransform([scrollYProgress, hold], ([v, h]: number[]) => `${-30 * seg(v, 0.04, 0.4) * (1 - h)}%`);
+  const headO = useTransform([scrollYProgress, hold], ([v, h]: number[]) => Math.max(h, 1 - seg(v, 0.06, 0.32)));
+  const capO = useTransform([scrollYProgress, hold], ([v, h]: number[]) => seg(v, 0.66, 0.8) * (1 - h));
   const capY = useTransform(scrollYProgress, (v) => 24 * (1 - seg(v, 0.66, 0.8)));
 
   const open = states.filter((s) => s === "open").length;
@@ -212,7 +225,7 @@ export function HouseScene({ states, children }: { states: BedState[]; children:
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[62%] bg-gradient-to-b from-night via-night/70 to-transparent" />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-night to-transparent" />
 
-        <motion.div style={reduce ? undefined : { y: headY, opacity: headO }} className="relative z-10">
+        <motion.div ref={content} style={reduce ? undefined : { y: headY, opacity: headO }} className="relative z-10">
           {children}
         </motion.div>
 

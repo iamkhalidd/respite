@@ -45,12 +45,12 @@ export default async function HomePage() {
                 A shared home for veterans, people in recovery and independent seniors. {NUMBER_WORDS[open]}{" "}
                 {open === 1 ? "bed is" : "beds are"} open right now.
               </p>
-              <div className="rise mt-9 hidden [animation-delay:400ms] sm:block">
+              <div className="rise mt-6 hidden [animation-delay:400ms] sm:block">
                 <SearchBar />
               </div>
               <Link
                 href="/rooms"
-                className="press rise mt-8 flex h-14 items-center gap-3 rounded-full bg-white pl-5 pr-2 text-ink [animation-delay:400ms] sm:hidden"
+                className="press rise mt-5 flex h-14 items-center gap-3 rounded-full bg-white pl-5 pr-2 text-ink [animation-delay:400ms] sm:hidden"
               >
                 <Search size={18} />
                 <span className="flex-1">

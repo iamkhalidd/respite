@@ -239,3 +239,108 @@ def test_login_rate_limit(client):
     for _ in range(8):
         client.post("/auth/login", json={"email": "limit@example.com", "password": "x"})
     assert client.post("/auth/login", json={"email": "limit@example.com", "password": "x"}).status_code == 429
+
+
+def _login(client) -> dict:
+    """A fresh owner token (the password test above signs out the shared one, the rate limit test blocks this client)."""
+    from app.security import login_limiter
+
+    login_limiter._fails.clear()
+    r = client.post("/auth/login", json={"email": "owner@example.com", "password": PW})
+    return {"Authorization": f"Bearer {r.json()['accessToken']}"}
+
+
+def test_rooms_add_hide_reorder_and_delete(client):
+    auth = _login(client)
+    before = client.get("/public/rooms").json()
+    r = client.post("/admin/rooms", headers=auth, json={
+        "name": "The Attic Room", "kind": "SHARED", "floor": "Upper", "bathroom": "Shared",
+        "rentCents": 60000, "depositCents": 20000, "beds": 2})
+    assert r.status_code == 201, r.text
+    room = r.json()
+    assert room["slug"] == "attic-room" and room["hidden"] is True
+    # hidden: in the dashboard, not on the site
+    assert len(client.get("/public/rooms").json()) == len(before)
+    detail = client.get(f"/admin/rooms/{room['id']}", headers=auth).json()
+    assert [b["label"] for b in detail["beds"]] == ["Bed 7", "Bed 8"]
+    assert client.post("/admin/rooms", headers=auth, json={
+        "name": "Two in private", "kind": "PRIVATE", "floor": "Upper", "bathroom": "Shared",
+        "rentCents": 1, "depositCents": 1, "beds": 2}).status_code == 400
+
+    shown = client.put(f"/admin/rooms/{room['id']}", headers=auth, json={
+        "name": "The Attic Room", "summary": "", "description": "", "rentCents": 60000, "depositCents": 20000,
+        "features": [], "hidden": False, "floor": "Upper"})
+    assert shown.json()["hidden"] is False
+    assert any(x["slug"] == "attic-room" for x in client.get("/public/rooms").json())
+
+    ids = [x["id"] for x in client.get("/admin/rooms", headers=auth).json()]
+    flipped = client.post("/admin/rooms/order", headers=auth, json={"ids": ids[::-1]}).json()
+    assert flipped[0]["id"] == room["id"]
+    client.post("/admin/rooms/order", headers=auth, json={"ids": ids})
+    assert client.post("/admin/rooms/order", headers=auth, json={"ids": ids[:1]}).status_code == 400
+
+    bed = client.post(f"/admin/rooms/{room['id']}/beds", headers=auth, json={}).json()
+    assert bed["label"] == "Bed 9"
+    assert client.patch(f"/admin/beds/{bed['id']}", headers=auth, json={"label": "Window bed"}).json()["label"] == "Window bed"
+    assert client.delete(f"/admin/beds/{bed['id']}", headers=auth).status_code == 204
+
+    # two beds can't become a private room
+    private = client.put(f"/admin/rooms/{room['id']}", headers=auth, json={
+        "name": "The Attic Room", "summary": "", "description": "", "rentCents": 60000, "depositCents": 20000,
+        "features": [], "kind": "PRIVATE"})
+    assert private.status_code == 400 and "one bed" in private.json()["detail"]
+
+    # a room someone lives in can't go
+    lived_in = next(x for x in client.get("/admin/rooms", headers=auth).json() if any(s["state"] != "open" for s in x["states"]))
+    assert client.delete(f"/admin/rooms/{lived_in['id']}", headers=auth).status_code == 400
+    assert client.delete(f"/admin/rooms/{room['id']}", headers=auth).status_code == 204
+    assert client.get(f"/admin/rooms/{room['id']}", headers=auth).status_code == 404
+
+
+def test_site_content_defaults_edit_and_reset(client):
+    auth = _login(client)
+    c = client.get("/public/content").json()
+    assert c["house"]["phone"] == "804-803-6248" and c["house"]["phoneHref"] == "tel:+18048036248"
+    assert len(c["faq"]["items"]) == 6 and [x["key"] for x in c["who"]["chapters"]] == ["VETERAN", "RECOVERY", "SENIOR"]
+    assert client.put("/admin/content/faq", json={"items": []}).status_code == 401
+
+    house = {**c["house"], "phone": " (804) 555-0100 "}
+    house.pop("phoneHref")
+    saved = client.put("/admin/content/house", headers=auth, json=house)
+    assert saved.status_code == 200 and saved.json()["phone"] == "(804) 555-0100"
+    assert client.get("/public/content").json()["house"]["phoneHref"] == "tel:+18045550100"
+    bad = client.put("/admin/content/house", headers=auth, json={**house, "phone": "  "})
+    assert bad.status_code == 400 and "phone" in bad.json()["detail"]
+
+    items = c["faq"]["items"][::-1] + [{"q": "Pets?", "a": "Ask us."}]
+    assert client.put("/admin/content/faq", headers=auth, json={"items": items}).json()["items"][0]["q"] == "Can we visit first?"
+    who = c["who"]
+    who["chapters"] = who["chapters"][:2]
+    assert client.put("/admin/content/who", headers=auth, json=who).status_code == 400
+
+    up = client.post("/admin/content/photo", headers=auth, files={"photo": ("k.webp", b"RIFF fake", "image/webp")})
+    assert up.status_code == 201 and up.json()["src"].startswith("/uploads/site-")
+
+    for key in ("house", "faq"):
+        client.post(f"/admin/content/{key}/reset", headers=auth)
+    assert client.get("/public/content").json()["house"]["phone"] == "804-803-6248"
+
+
+def test_staff_can_work_but_not_manage_the_team(client):
+    auth = _login(client)
+    r = client.post("/admin/users", headers=auth, json={"email": "helper@example.com", "name": "Helper", "password": "staff-password-1"})
+    assert r.status_code == 201 and r.json()["role"] == "STAFF"
+    staff_id = r.json()["id"]
+    tok = client.post("/auth/login", json={"email": "helper@example.com", "password": "staff-password-1"}).json()["accessToken"]
+    staff = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/auth/me", headers=staff).json()["role"] == "STAFF"
+    assert client.get("/admin/rooms", headers=staff).status_code == 200
+    assert client.get("/admin/users", headers=staff).status_code == 200
+    assert client.post("/admin/users", headers=staff, json={"email": "x@example.com", "password": "another-password"}).status_code == 403
+    assert client.delete(f"/admin/users/{staff_id}", headers=staff).status_code == 403
+
+    me = client.get("/auth/me", headers=auth).json()
+    assert client.patch(f"/admin/users/{me['id']}", headers=auth, json={"role": "STAFF"}).status_code == 400  # last owner
+    assert client.patch(f"/admin/users/{staff_id}", headers=auth, json={"role": "OWNER"}).json()["role"] == "OWNER"
+    assert client.get("/auth/me", headers=staff).status_code == 401  # role change signs them out
+    assert client.delete(f"/admin/users/{staff_id}", headers=auth).status_code == 204

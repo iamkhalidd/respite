@@ -44,7 +44,7 @@ export function HouseScene({ states, children }: { states: BedState[]; children:
   useEffect(() => {
     const el = content.current;
     if (!el) return;
-    const check = () => animate(hold, el.querySelector('[aria-expanded="true"]') ? 1 : 0, { duration: 0.35, ease: [0.23, 1, 0.32, 1] });
+    const check = () => animate(hold, el.querySelector('[aria-expanded="true"]') ? 1 : 0, { duration: 0.35, ease: [0.22, 1, 0.36, 1] });
     const mo = new MutationObserver(check);
     mo.observe(el, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
     return () => mo.disconnect();
@@ -97,20 +97,20 @@ export function HouseScene({ states, children }: { states: BedState[]; children:
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
-      ctx.fillStyle = "#0b0d0c";
+      ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, cw, ch);
       ctx.drawImage(img, ox, oy, IMG_W * s, IMG_H * s);
       if (portrait) {
         // melt the photo's top and bottom edges into the night
         const ih = IMG_H * s;
         const top = ctx.createLinearGradient(0, oy, 0, oy + ih * 0.35);
-        top.addColorStop(0, "#0b0d0c");
-        top.addColorStop(1, "rgba(11,13,12,0)");
+        top.addColorStop(0, "#000000");
+        top.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = top;
         ctx.fillRect(0, oy - 1, cw, ih * 0.35 + 1);
         const bot = ctx.createLinearGradient(0, oy + ih * 0.8, 0, oy + ih);
-        bot.addColorStop(0, "rgba(11,13,12,0)");
-        bot.addColorStop(1, "#0b0d0c");
+        bot.addColorStop(0, "rgba(0,0,0,0)");
+        bot.addColorStop(1, "#000000");
         ctx.fillStyle = bot;
         ctx.fillRect(0, oy + ih * 0.8, cw, ih * 0.2 + 1);
       }
@@ -231,9 +231,16 @@ export function HouseScene({ states, children }: { states: BedState[]; children:
 
         <motion.p
           style={reduce ? undefined : { opacity: capO, y: capY }}
-          className="absolute inset-x-0 top-[14vh] z-10 px-4 text-center text-[clamp(1.6rem,3.6vw,3rem)] font-medium leading-[1.1] tracking-[-0.04em] text-white"
+          className="heading-4 md:heading-3 absolute inset-x-0 top-[14vh] z-10 mx-auto max-w-[680px] px-4 text-center text-white"
         >
-          {open > 0 ? `${open} ${open === 1 ? "window" : "windows"} lit. ${open === 1 ? "That bed is" : "Those beds are"} yours to ask for.` : "Every window is full tonight."}
+          {open > 0 ? (
+            <>
+              <span className="block">{`${open} ${open === 1 ? "window" : "windows"} lit.`}</span>
+              <span className="block">{`${open === 1 ? "That bed is" : "Those beds are"} yours to ask for.`}</span>
+            </>
+          ) : (
+            "Every window is full tonight."
+          )}
           {soon > 0 && <span className="block text-white/50">{soon === 1 ? "One more opens soon." : `${soon} more open soon.`}</span>}
         </motion.p>
       </div>

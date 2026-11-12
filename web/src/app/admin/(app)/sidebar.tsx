@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut, Bell } from "lucide-react";
+import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut, Bell, Globe, UserCog } from "lucide-react";
 import type { BedState } from "@/lib/availability";
 import { logout } from "../actions";
 
@@ -12,8 +12,10 @@ const ITEMS = [
   { href: "/admin/residents", label: "Residents", short: "Residents", icon: Users },
   { href: "/admin/payments", label: "Payments", short: "Payments", icon: CreditCard, badge: "overdue" },
   { href: "/admin/notifications", label: "Notifications", short: "Alerts", icon: Bell, badge: "unread", rail: true },
+  { href: "/admin/site", label: "Website", short: "Website", icon: Globe, rail: true },
+  { href: "/admin/team", label: "Team", short: "Team", icon: UserCog, rail: true },
 ] as const;
-// the phone tab bar keeps five; notifications sit behind the bell in the top bar instead
+// the phone tab bar keeps five; the rest sit as icons in the phone's top bar instead
 const TABS = ITEMS.filter((it) => !("rail" in it));
 
 function Mark() {
@@ -81,14 +83,12 @@ export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Pr
             <span className="mono text-[0.72rem]">{open}/{beds.length}</span>
           </span>
           <BellLink unread={unread} failedEmails={failedEmails} className="press grid h-10 w-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white" />
-          <Link href="/" target="_blank" aria-label="View public site" className="press grid h-10 w-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
-            <ArrowUpRight size={19} />
+          <Link href="/admin/site" aria-label="Website" aria-current={isActive("/admin/site") ? "page" : undefined} className={`press grid h-10 w-10 place-items-center rounded-full hover:bg-white/10 hover:text-white ${isActive("/admin/site") ? "bg-white/10 text-porch" : "text-white/70"}`}>
+            <Globe size={18} />
           </Link>
-          <form action={logout}>
-            <button aria-label="Log out" className="press grid h-10 w-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
-              <LogOut size={17} />
-            </button>
-          </form>
+          <Link href="/admin/team" aria-label="Team and your account" aria-current={isActive("/admin/team") ? "page" : undefined} className={`press grid h-10 w-10 place-items-center rounded-full hover:bg-white/10 hover:text-white ${isActive("/admin/team") ? "bg-white/10 text-porch" : "text-white/70"}`}>
+            <UserCog size={18} />
+          </Link>
         </div>
       </header>
 

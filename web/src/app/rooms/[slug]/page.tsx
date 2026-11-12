@@ -9,7 +9,7 @@ import { RoomImage } from "@/components/room-art";
 import { WindowRow } from "@/components/house";
 import { availabilityText } from "@/components/room-card";
 import { Reveal } from "@/components/reveal";
-import { PHONE, PHONE_HREF } from "@/lib/labels";
+import { getHouse } from "@/lib/content";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function RoomPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { room, rooms } = await load((await params).slug);
+  const [{ room, rooms }, house] = await Promise.all([load((await params).slug), getHouse()]);
   if (!room) notFound();
   const photos = parseList(room.photos);
   const features = parseList(room.features);
@@ -106,7 +106,7 @@ export default async function RoomPage({ params }: { params: Promise<{ slug: str
 
             <section className="border-t border-line pt-10">
               <h2 className="mb-6 text-xl font-semibold tracking-tight">Where it is</h2>
-              <p className="flex items-center gap-2 text-ink/80"><MapPin size={16} /> Chester, Virginia</p>
+              <p className="flex items-center gap-2 text-ink/80"><MapPin size={16} /> {house.town}</p>
               <ul className="mt-5 grid gap-3 text-[0.95rem] text-ink/70 sm:grid-cols-2">
                 <li>About 15 minutes to the Richmond VA Medical Center</li>
                 <li>Close to I-95 and Route 10</li>
@@ -133,8 +133,8 @@ export default async function RoomPage({ params }: { params: Promise<{ slug: str
               <Link href={`/apply?room=${room.slug}`} className="btn btn-primary press !h-12 w-full">
                 {canRequest ? "Request this room" : "Join the waitlist"}
               </Link>
-              <a href={PHONE_HREF} className="btn btn-ghost press mt-2.5 !h-12 w-full">
-                <Phone size={15} /> Call {PHONE}
+              <a href={house.phoneHref} className="btn btn-ghost press mt-2.5 !h-12 w-full">
+                <Phone size={15} /> Call {house.phone}
               </a>
               <p className="mt-4 text-center text-[0.85rem] text-ink/55">Requesting is free. We&apos;ll call you before anything is final.</p>
             </div>

@@ -13,7 +13,8 @@ from ..models import Request, Room
 from ..services.availability import get_beds, get_rooms_with_beds
 from ..services import notify
 from ..services.fmt import first_name
-from ..services.labels import FOR_WHOM, MOVE_IN, PAYMENT, PHONE, PROGRAMS
+from ..services.content import get_all, house_phone
+from ..services.labels import FOR_WHOM, MOVE_IN, PAYMENT, PROGRAMS
 
 router = APIRouter(prefix="/public", tags=["public"])
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -21,13 +22,19 @@ EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 @router.get("/rooms")
 def rooms(db: Session = Depends(get_db)):
-    return get_rooms_with_beds(db)
+    return get_rooms_with_beds(db, public=True)
 
 
 @router.get("/beds")
 def beds(db: Session = Depends(get_db)):
     # who sleeps where is private; the dashboard gets names from /admin/beds
-    return [{k: v for k, v in b.items() if k != "residentName"} for b in get_beds(db)]
+    return [{k: v for k, v in b.items() if k != "residentName"} for b in get_beds(db, public=True)]
+
+
+@router.get("/content")
+def content(db: Session = Depends(get_db)):
+    """Everything the owners can edit: house details, homepage wording and photos, who it's for, the FAQ."""
+    return get_all(db)
 
 
 class RequestIn(BaseModel):
@@ -94,7 +101,7 @@ def submit_request(body: RequestIn, db: Session = Depends(get_db)):
         what = "a room" if d["forWhom"] == "SELF" else f"a room for {d['name']}"
         notify.email(
             db, contact, "We got your request — Respite for the Weary",
-            f"Thanks for reaching out about {what}.\nWe'll call within one business day. If it's urgent, call {PHONE}.",
+            f"Thanks for reaching out about {what}.\nWe'll call within one business day. If it's urgent, call {house_phone(db)}.",
             "request.received",
         )
     db.commit()  # the request and its notifications are saved together

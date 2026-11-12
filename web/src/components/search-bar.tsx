@@ -71,7 +71,7 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
   return (
     <div ref={root} className={`relative w-full ${compact ? "max-w-3xl" : "max-w-[680px]"}`}>
       <div
-        className={`flex flex-col rounded-[28px] bg-paper p-1.5 shadow-[0_1px_0_rgb(23_33_28/.06),0_12px_40px_-12px_rgb(23_33_28/.25)] ring-1 ring-line sm:flex-row sm:items-center sm:rounded-full ${
+        className={`flex flex-col rounded-3xl bg-paper p-2 shadow-[0_1px_0_rgb(23_33_28/.06),0_12px_40px_-12px_rgb(23_33_28/.25)] ring-1 ring-line sm:flex-row sm:items-center sm:rounded-full ${
           open ? "sm:bg-[#f1f1ee]" : ""
         }`}
       >
@@ -89,12 +89,12 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
                 aria-expanded={active}
                 aria-haspopup="listbox"
                 onClick={(e) => toggle(f, e.currentTarget)}
-                className={`press w-full rounded-full px-5 py-2.5 text-left transition-colors ${
+                className={`press w-full rounded-full px-4 py-2 text-left transition-colors ${
                   active ? "bg-paper shadow-[0_6px_24px_-8px_rgb(23_33_28/.3)]" : "hover:bg-ink/5"
                 }`}
               >
-                <span className="mono block text-[0.68rem] uppercase tracking-[0.02em] text-ink/55">{o.label}</span>
-                <span className={`block truncate text-[0.92rem] ${values[f] ? "text-ink" : "text-ink/50"}`}>
+                <span className="mono caption-4 block uppercase tracking-[0.02em] text-ink/55">{o.label}</span>
+                <span className={`body-6 block truncate ${values[f] ? "text-ink" : "text-ink/50"}`}>
                   {values[f] ? current?.[1] : o.placeholder}
                 </span>
               </button>
@@ -134,7 +134,7 @@ export function SearchBar({ initial = {}, compact = false }: { initial?: Partial
         <button
           type="button"
           onClick={() => go()}
-          className="press mt-1.5 flex h-12 items-center justify-center gap-2 rounded-full bg-porch px-6 font-medium text-ink hover:bg-porch-glow sm:ml-1 sm:mt-0 sm:w-auto"
+          className="press button-md mt-2 flex h-12 items-center justify-center gap-2 rounded-full bg-porch px-6 text-ink hover:bg-porch-glow sm:ml-1 sm:mt-0 sm:w-auto"
         >
           <Search size={18} strokeWidth={2.4} />
           <span>Find a bed</span>

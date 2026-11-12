@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
@@ -5,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db, now
 from ..models import AdminUser
-from ..security import burn_time, current_admin, hash_password, login_limiter, make_token, verify_password
+from ..security import burn_time, current_admin, hash_password, login_limiter, make_token, owner_only, verify_password
 from ..serialize import iso, row
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-users = APIRouter(prefix="/admin/users", tags=["owner accounts"], dependencies=[Depends(current_admin)])
+# anyone signed in can see the team; only owners can add or remove people
+users = APIRouter(prefix="/admin/users", tags=["team"], dependencies=[Depends(current_admin)])
 
 
 class LoginIn(BaseModel):
@@ -26,6 +29,11 @@ class NewUserIn(BaseModel):
     email: EmailStr
     name: str = Field(default="", max_length=120)
     password: str = Field(min_length=10, max_length=200)
+    role: Literal["OWNER", "STAFF"] = "STAFF"
+
+
+class RoleIn(BaseModel):
+    role: Literal["OWNER", "STAFF"]
 
 
 def user_out(u: AdminUser) -> dict:
@@ -76,19 +84,37 @@ def list_users(db: Session = Depends(get_db)):
     return [user_out(u) for u in db.scalars(select(AdminUser).order_by(AdminUser.createdAt))]
 
 
-@users.post("", status_code=201)
+@users.post("", status_code=201, dependencies=[Depends(owner_only)])
 def create_user(body: NewUserIn, db: Session = Depends(get_db)):
     email = body.email.lower()
     if db.scalar(select(AdminUser).where(func.lower(AdminUser.email) == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "There's already an account with that email.")
-    u = AdminUser(email=email, name=body.name.strip(), passwordHash=hash_password(body.password))
+    u = AdminUser(email=email, name=body.name.strip(), role=body.role, passwordHash=hash_password(body.password))
     db.add(u)
     db.commit()
     return user_out(u)
 
 
+def _other_owners(db: Session, user_id: str) -> int:
+    return db.scalar(select(func.count()).select_from(AdminUser).where(AdminUser.role == "OWNER", AdminUser.id != user_id)) or 0
+
+
+@users.patch("/{user_id}")
+def set_role(user_id: str, body: RoleIn, me: AdminUser = Depends(owner_only), db: Session = Depends(get_db)):
+    u = db.get(AdminUser, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such account.")
+    if u.role == "OWNER" and body.role != "OWNER" and not _other_owners(db, u.id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The house needs at least one owner.")
+    if u.role != body.role:
+        u.role = body.role
+        u.tokenVersion += 1  # signs them out so the new role applies at once
+    db.commit()
+    return user_out(u)
+
+
 @users.delete("/{user_id}", status_code=204)
-def delete_user(user_id: str, me: AdminUser = Depends(current_admin), db: Session = Depends(get_db)):
+def delete_user(user_id: str, me: AdminUser = Depends(owner_only), db: Session = Depends(get_db)):
     if user_id == me.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You can't remove your own account.")
     u = db.get(AdminUser, user_id)

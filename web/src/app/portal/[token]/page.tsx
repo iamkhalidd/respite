@@ -4,7 +4,7 @@ import { Check, Phone } from "lucide-react";
 import { api, orNull } from "@/lib/api";
 import type { Charge, Resident, Bed, Room } from "@/lib/types";
 import { longDate, money, shortDate } from "@/lib/format";
-import { PHONE, PHONE_HREF } from "@/lib/labels";
+import { getHouse } from "@/lib/content";
 import { Logo } from "@/components/site-chrome";
 import { startCheckout } from "./actions";
 import { PayButton } from "./pay-button";
@@ -16,6 +16,7 @@ export const metadata: Metadata = { title: "Your rent", robots: { index: false }
 export default async function Portal({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ session_id?: string; paid?: string }> }) {
   const { token } = await params;
   const { session_id, paid } = await searchParams;
+  const house = await getHouse();
 
   const path = `/portal/${encodeURIComponent(token)}`;
   let justPaid = Boolean(paid);
@@ -40,8 +41,8 @@ export default async function Portal({ params, searchParams }: { params: Promise
     <div className="min-h-dvh bg-oat text-ink">
       <header className="mx-auto flex max-w-xl items-center justify-between px-5 py-5">
         <Logo />
-        <a href={PHONE_HREF} className="press mono inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-[0.82rem] text-moss transition-colors hover:bg-ink/[.05] hover:text-ink">
-          <Phone size={14} /> {PHONE}
+        <a href={house.phoneHref} className="press mono inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-[0.82rem] text-moss transition-colors hover:bg-ink/[.05] hover:text-ink">
+          <Phone size={14} /> {house.phone}
         </a>
       </header>
 
@@ -90,8 +91,8 @@ export default async function Portal({ params, searchParams }: { params: Promise
 
         <p className="mt-5 px-1 text-[0.9rem] leading-relaxed text-moss">
           Paying with cash, a money order or a program voucher? Hand it to the house manager and it will be marked paid here. Questions? Call{" "}
-          <a href={PHONE_HREF} className="whitespace-nowrap font-medium text-ink underline decoration-line-strong underline-offset-4">
-            {PHONE}
+          <a href={house.phoneHref} className="whitespace-nowrap font-medium text-ink underline decoration-line-strong underline-offset-4">
+            {house.phone}
           </a>
           .
         </p>

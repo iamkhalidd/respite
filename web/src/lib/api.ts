@@ -59,6 +59,7 @@ export const api = {
   post: async <T>(path: string, body?: unknown, init?: Init) => read<T>(await call(path, { ...init, method: "POST", body: body ?? {} })),
   put: async <T>(path: string, body: unknown, init?: Init) => read<T>(await call(path, { ...init, method: "PUT", body })),
   patch: async <T>(path: string, body: unknown, init?: Init) => read<T>(await call(path, { ...init, method: "PATCH", body })),
+  delete: async <T>(path: string, init?: Init) => read<T>(await call(path, { ...init, method: "DELETE" })),
   /** Raw passthrough, for proxying webhooks and cron calls. */
   raw: call,
 };
@@ -69,6 +70,7 @@ export const admin = {
   post: <T>(path: string, body?: unknown) => api.post<T>(path, body, { admin: true }),
   put: <T>(path: string, body: unknown) => api.put<T>(path, body, { admin: true }),
   patch: <T>(path: string, body: unknown) => api.patch<T>(path, body, { admin: true }),
+  delete: <T>(path: string) => api.delete<T>(path, { admin: true }),
 };
 
 /** null for a 404, so pages can call notFound(). */

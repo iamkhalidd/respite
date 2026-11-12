@@ -18,7 +18,7 @@
   --paper: #ffffff;      /* surfaces */
   --ink: #0f1110;        /* text */
   --pine: #0f1110;       /* dark surfaces, primary buttons */
-  --night: #0b0d0c;      /* hero sky */
+  --night: #000000;      /* hero sky (flat, from the approved dark set) */
   --moss: #6d716e;       /* secondary text */
   --porch: #f0a53a;      /* the light — availability + primary moment */
   --porch-glow: #ffd98f;
@@ -26,7 +26,7 @@
   --line: rgb(15 17 16 / 0.1);
   --line-strong: rgb(15 17 16 / 0.2);
 
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -60,7 +60,28 @@ body {
 }
 ::selection { background: var(--porch-glow); color: var(--ink); }
 
+/* Named text styles. Sizes and line heights come straight from Tailwind's scale steps. */
+@utility heading-1 { font-size: var(--text-6xl); line-height: var(--text-6xl--line-height); font-weight: 600; letter-spacing: -0.045em; text-wrap: balance; }
+@utility heading-2 { font-size: var(--text-5xl); line-height: var(--text-5xl--line-height); font-weight: 600; letter-spacing: -0.045em; text-wrap: balance; }
+@utility heading-3 { font-size: var(--text-4xl); line-height: var(--text-4xl--line-height); font-weight: 600; letter-spacing: -0.035em; text-wrap: balance; }
+@utility heading-4 { font-size: var(--text-3xl); line-height: var(--text-3xl--line-height); font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; }
+@utility title-3 { font-size: var(--text-base); line-height: var(--text-base--line-height); font-weight: 500; }
+@utility body-3 { font-size: var(--text-base); line-height: var(--text-base--line-height); font-weight: 400; text-wrap: pretty; }
+@utility body-6 { font-size: var(--text-sm); line-height: var(--text-sm--line-height); font-weight: 400; }
+@utility body-7 { font-size: var(--text-lg); line-height: var(--text-lg--line-height); font-weight: 400; text-wrap: pretty; } /* lead paragraph */
+@utility button-md { font-size: var(--text-base); line-height: var(--text-base--line-height); font-weight: 600; }
+@utility caption-4 { font-size: var(--text-xs); line-height: var(--text-xs--line-height); font-weight: 500; }
+@utility caption-5 { font-size: var(--text-xs); line-height: var(--text-xs--line-height); font-weight: 400; }
+
 @layer components {
+/* Hero heading on dark: the one place a gradient is allowed, and only on the text */
+.hero-gradient {
+  background-image: linear-gradient(90deg, #ffffff, #9b9b9b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* Display: poster scale, tight, set rarely */
 .display {
   font-family: var(--font-geist), system-ui, sans-serif;
@@ -87,7 +108,7 @@ body {
 .tabular { font-variant-numeric: tabular-nums; }
 
 /* Pressable: every button and tappable card */
-.press { transition: transform 160ms var(--ease-out), background-color 160ms ease, color 160ms ease, box-shadow 200ms ease; }
+.press { transition: transform 160ms var(--ease-out), background-color 200ms var(--ease-out), color 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
 .press:active { transform: scale(0.97); }
 
 .btn {
@@ -131,8 +152,8 @@ body {
 .window-lit { animation: flicker-on 900ms var(--ease-out) both; }
 
 /* Page-load rise used on hero lines */
-@keyframes rise { from { opacity: 0; transform: translateY(0.35em); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
-.rise { animation: rise 1000ms var(--ease-out) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 800ms var(--ease-out) both; }
 
 /* Entrance used by <Reveal>; JS adds data-shown */
 [data-reveal] { opacity: 0; transform: translateY(16px); transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out); }

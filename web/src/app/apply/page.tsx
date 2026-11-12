@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getRoomsWithBeds } from "@/lib/availability";
+import { getHouse } from "@/lib/content";
 import { Flow } from "./flow";
 
 export const metadata: Metadata = { title: "Request a room" };
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ApplyPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
-  const rooms = await getRoomsWithBeds();
+  const [rooms, house] = await Promise.all([getRoomsWithBeds(), getHouse()]);
   return (
     <Flow
       rooms={rooms.map((r) => ({
@@ -23,6 +24,7 @@ export default async function ApplyPage({ searchParams }: { searchParams: Promis
       }))}
       initialRoom={sp.room}
       initialFor={sp.for === "PROFESSIONAL" ? "PROFESSIONAL" : undefined}
+      phone={{ label: house.phone, href: house.phoneHref }}
     />
   );
 }

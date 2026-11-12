@@ -6,7 +6,7 @@ on the existing Postgres database without a migration. Attribute names follow th
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, UtcDateTime, new_id, now
@@ -20,6 +20,8 @@ class AdminUser(Base):
     passwordHash: Mapped[str] = mapped_column(String)
     # bumped on password change so older tokens stop working
     tokenVersion: Mapped[int] = mapped_column(Integer, default=0)
+    # OWNER can manage the team; STAFF can do everything else
+    role: Mapped[str] = mapped_column(String, default="OWNER", server_default=text("'OWNER'"))
     lastLoginAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
 
@@ -40,6 +42,8 @@ class Room(Base):
     photos: Mapped[str] = mapped_column(Text, default="[]")  # JSON string[]
     tone: Mapped[str] = mapped_column(String, default="sage")
     sortOrder: Mapped[int] = mapped_column(Integer, default=0)
+    # hidden rooms stay in the dashboard but drop off the public site
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
 
     beds: Mapped[list["Bed"]] = relationship(back_populates="room", cascade="all, delete-orphan")
@@ -143,3 +147,12 @@ class Notification(Base):
     lastError: Mapped[str | None] = mapped_column(Text, nullable=True)
     sentAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     readAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)  # INBOX only
+
+
+class SiteContent(Base):
+    """Words, photos and contact details the owners edit from the dashboard. One JSON document per section."""
+
+    __tablename__ = "SiteContent"
+    key: Mapped[str] = mapped_column(String, primary_key=True)  # house | home | who | faq
+    value: Mapped[str] = mapped_column(Text)  # JSON
+    updatedAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now, onupdate=now)

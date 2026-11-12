@@ -7,13 +7,12 @@ import { submitRequest, type RequestInput } from "./actions";
 import { House, WindowRow } from "@/components/house";
 import type { BedState } from "@/lib/availability";
 import { money, shortDate } from "@/lib/format";
-import { PHONE, PHONE_HREF } from "@/lib/labels";
 
 type RoomOpt = { slug: string; name: string; kind: string; floor: string; rentCents: number; tone: string; states: BedState[]; open: number; soon: string | null };
 type Data = Partial<RequestInput>;
 type StepId = "forWhom" | "referrer" | "program" | "room" | "moveIn" | "payment" | "contact" | "message";
 
-export function Flow({ rooms, initialRoom, initialFor }: { rooms: RoomOpt[]; initialRoom?: string; initialFor?: "PROFESSIONAL" }) {
+export function Flow({ rooms, initialRoom, initialFor, phone }: { rooms: RoomOpt[]; initialRoom?: string; initialFor?: "PROFESSIONAL"; phone: { label: string; href: string } }) {
   const [data, setData] = useState<Data>({ room: initialRoom, forWhom: initialFor });
   const [i, setI] = useState(0);
   const [dir, setDir] = useState(1);
@@ -90,7 +89,7 @@ export function Flow({ rooms, initialRoom, initialFor }: { rooms: RoomOpt[]; ini
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-36 pt-10 sm:px-6 sm:pt-16">
         <AnimatePresence mode="wait" custom={dir} initial={false}>
           {done ? (
-            <Done key="done" name={done} rooms={rooms} />
+            <Done key="done" name={done} rooms={rooms} phone={phone} />
           ) : (
             <motion.div
               key={step}
@@ -348,7 +347,7 @@ function Summary({ data, rooms }: { data: Data; rooms: RoomOpt[] }) {
   );
 }
 
-function Done({ name, rooms }: { name: string; rooms: RoomOpt[] }) {
+function Done({ name, rooms, phone }: { name: string; rooms: RoomOpt[]; phone: { label: string; href: string } }) {
   const states = rooms.flatMap((r) => r.states);
   return (
     <motion.section
@@ -362,8 +361,8 @@ function Done({ name, rooms }: { name: string; rooms: RoomOpt[] }) {
       <h1 className="display-2 mt-6 text-[clamp(2.4rem,6vw,3.8rem)]">Request sent, {name}.</h1>
       <p className="mt-4 max-w-md text-[1.08rem] text-ink/70">
         We&apos;ll call within one business day. If it&apos;s urgent, call us at{" "}
-        <a href={PHONE_HREF} className="font-semibold text-ink underline underline-offset-4">
-          {PHONE}
+        <a href={phone.href} className="font-semibold text-ink underline underline-offset-4">
+          {phone.label}
         </a>
         .
       </p>

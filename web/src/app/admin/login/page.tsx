@@ -3,7 +3,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { login } from "../actions";
-import { Logo } from "@/components/site-chrome";
+import { Logo } from "@/components/brand";
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, null);

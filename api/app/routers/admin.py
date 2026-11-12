@@ -2,13 +2,14 @@
 
 import json
 import logging
+import re
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -19,7 +20,7 @@ from ..security import current_admin
 from ..serialize import row, rows
 from ..services.availability import get_beds, get_rooms_with_beds, sorted_beds
 from ..services.billing import bill_rent
-from ..services import notify
+from ..services import content, notify
 from ..services.email import site_url
 from .notifications import failed_count, unread_count
 from ..services.fmt import first_name, money, month_label, month_start, parse_day, period
@@ -188,6 +189,11 @@ def get_room(room_id: str, db: Session = Depends(get_db)):
     return row(room, beds=[row(b, resident=row(b.resident)) for b in sorted_beds(list(room.beds))])
 
 
+Kind = Literal["PRIVATE", "SHARED"]
+Floor = Literal["Ground", "Upper"]
+Bath = Literal["Private", "Shared"]
+
+
 class RoomPatch(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     summary: str = Field(max_length=500)
@@ -195,32 +201,151 @@ class RoomPatch(BaseModel):
     rentCents: int = Field(ge=0)
     depositCents: int = Field(ge=0)
     features: list[str] = []
+    # left out by older forms; only changed when sent
+    kind: Kind | None = None
+    floor: Floor | None = None
+    bathroom: Bath | None = None
+    hidden: bool | None = None
 
 
 @router.put("/rooms/{room_id}")
 def update_room(room_id: str, body: RoomPatch, db: Session = Depends(get_db)):
     room = _get(db, Room, room_id, "room")
+    if body.kind == "PRIVATE" and len(room.beds) > 1:
+        raise HTTPException(400, "A private room has one bed. Remove the extra beds first.")
     room.name, room.summary, room.description = body.name.strip(), body.summary, body.description
     room.rentCents, room.depositCents = body.rentCents, body.depositCents
     room.features = json.dumps([f.strip() for f in body.features if f.strip()])
+    for k in ("kind", "floor", "bathroom", "hidden"):
+        if getattr(body, k) is not None:
+            setattr(room, k, getattr(body, k))
     db.commit()
     return row(room)
 
 
+def _slug(db: Session, name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", re.sub(r"^the\s+", "", name.lower())).strip("-") or "room"
+    slug, n = base[:60], 2
+    while db.scalar(select(Room.id).where(Room.slug == slug)):
+        slug, n = f"{base[:56]}-{n}", n + 1
+    return slug
+
+
+def _next_bed_label(db: Session) -> str:
+    """Bed numbers run across the house (Bed 1 to Bed 6), so a new bed takes the next free number."""
+    used = {int(m.group(1)) for label in db.scalars(select(Bed.label)) if (m := re.fullmatch(r"Bed (\d+)", label))}
+    n = 1
+    while n in used:
+        n += 1
+    return f"Bed {n}"
+
+
+class RoomIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Kind
+    floor: Floor
+    bathroom: Bath
+    rentCents: int = Field(ge=0)
+    depositCents: int = Field(ge=0)
+    beds: int = Field(ge=1, le=6)
+    hidden: bool = True  # new rooms start hidden so they can be finished before anyone sees them
+
+
+@router.post("/rooms", status_code=201)
+def create_room(body: RoomIn, db: Session = Depends(get_db)):
+    name = body.name.strip()
+    if body.kind == "PRIVATE" and body.beds != 1:
+        raise HTTPException(400, "A private room has one bed. Choose shared for more.")
+    last = db.scalar(select(func.max(Room.sortOrder))) or 0
+    room = Room(
+        slug=_slug(db, name), name=name, kind=body.kind, floor=body.floor, bathroom=body.bathroom,
+        rentCents=body.rentCents, depositCents=body.depositCents, summary="", description="",
+        features="[]", photos="[]", tone="oat", sortOrder=last + 1, hidden=body.hidden,
+    )
+    db.add(room)
+    db.flush()
+    for _ in range(body.beds):
+        db.add(Bed(label=_next_bed_label(db), roomId=room.id))
+        db.flush()
+    db.commit()
+    return row(room)
+
+
+def _occupied(beds) -> list[Bed]:
+    return [b for b in beds if b.resident and b.resident.active]
+
+
+@router.delete("/rooms/{room_id}", status_code=204)
+def delete_room(room_id: str, db: Session = Depends(get_db)):
+    room = _get(db, Room, room_id, "room")
+    if _occupied(room.beds):
+        raise HTTPException(400, "Someone still lives in this room. Move them out or to another bed first.")
+    db.delete(room)  # beds go with it; past residents and requests keep their history without the link
+    db.commit()
+
+
+class RoomOrder(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=100)
+
+
+@router.post("/rooms/order")
+def reorder_rooms(body: RoomOrder, db: Session = Depends(get_db)):
+    rooms = {r.id: r for r in db.scalars(select(Room))}
+    if set(body.ids) != set(rooms):
+        raise HTTPException(400, "The room list changed. Reload and try again.")
+    for i, rid in enumerate(body.ids, start=1):
+        rooms[rid].sortOrder = i
+    db.commit()
+    return get_rooms_with_beds(db)
+
+
+class BedIn(BaseModel):
+    label: str = Field(default="", max_length=40)
+
+
+@router.post("/rooms/{room_id}/beds", status_code=201)
+def add_bed(room_id: str, body: BedIn, db: Session = Depends(get_db)):
+    room = _get(db, Room, room_id, "room")
+    if room.kind == "PRIVATE" and room.beds:
+        raise HTTPException(400, "A private room has one bed. Change it to shared to add another.")
+    if len(room.beds) >= 6:
+        raise HTTPException(400, "A room can hold six beds at most.")
+    bed = Bed(label=body.label.strip() or _next_bed_label(db), roomId=room.id)
+    db.add(bed)
+    db.commit()
+    return row(bed)
+
+
+@router.delete("/beds/{bed_id}", status_code=204)
+def delete_bed(bed_id: str, db: Session = Depends(get_db)):
+    bed = _get(db, Bed, bed_id, "bed")
+    if _occupied([bed]):
+        raise HTTPException(400, "Someone sleeps in this bed. Move them out first.")
+    if len(bed.room.beds) <= 1:
+        raise HTTPException(400, "A room needs at least one bed. Delete the room instead.")
+    db.delete(bed)
+    db.commit()
+
+
 class BedPatch(BaseModel):
     availableFrom: str | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 @router.patch("/beds/{bed_id}")
 def update_bed(bed_id: str, body: BedPatch, db: Session = Depends(get_db)):
     bed = _get(db, Bed, bed_id, "bed")
-    if body.availableFrom:
-        day = parse_day(body.availableFrom)
-        if not day:
-            raise HTTPException(400, "That isn't a date.")
-        bed.availableFrom = day
-    else:
-        bed.availableFrom = None
+    sent = body.model_fields_set
+    if "label" in sent and body.label:
+        bed.label = body.label.strip()
+    if "availableFrom" in sent or not sent:
+        if body.availableFrom:
+            day = parse_day(body.availableFrom)
+            if not day:
+                raise HTTPException(400, "That isn't a date.")
+            bed.availableFrom = day
+        else:
+            bed.availableFrom = None
     db.commit()
     return row(bed)
 
@@ -236,19 +361,24 @@ def _photos(room: Room) -> list[str]:
         return []
 
 
-@router.post("/rooms/{room_id}/photos", status_code=201)
-def upload_photo(room_id: str, photo: UploadFile = File(...), db: Session = Depends(get_db)):
-    room = _get(db, Room, room_id, "room")
-    if not get_settings().can_upload_photos:
-        raise HTTPException(400, "Photo uploads aren't set up on this server yet.")
+def _read_photo(photo: UploadFile) -> tuple[str, bytes]:
     ctype = (photo.content_type or "").lower()
-    if not ctype.startswith("image/"):
+    if ctype not in IMAGE_TYPES:
         raise HTTPException(400, "That file isn't a picture. Use a JPG, PNG or WebP.")
     data = photo.file.read(MAX_PHOTO + 1)
     if not data:
         raise HTTPException(400, "Choose a photo first.")
     if len(data) > MAX_PHOTO:
         raise HTTPException(400, "That photo is over 8 MB. Use a smaller one.")
+    return ctype, data
+
+
+@router.post("/rooms/{room_id}/photos", status_code=201)
+def upload_photo(room_id: str, photo: UploadFile = File(...), db: Session = Depends(get_db)):
+    room = _get(db, Room, room_id, "room")
+    if not get_settings().can_upload_photos:
+        raise HTTPException(400, "Photo uploads aren't set up on this server yet.")
+    ctype, data = _read_photo(photo)
     ext = IMAGE_TYPES.get(ctype, "jpg")
     try:
         url = save_photo(f"{room.id}-{int(time.time() * 1000)}.{ext}", data, ctype)
@@ -419,3 +549,40 @@ def bill_month(body: BillIn, db: Session = Depends(get_db)):
     if not 1 <= m <= 12:
         raise HTTPException(400, "Choose a month.")
     return {"billed": bill_rent(db, datetime(y, m, 1, tzinfo=UTC))}
+
+
+# ───── Website: wording, FAQ, house details, homepage photos ─────
+
+@router.get("/content")
+def get_content(db: Session = Depends(get_db)):
+    return {**content.get_all(db), "defaults": content.DEFAULTS}
+
+
+@router.put("/content/{key}")
+def save_content(key: Literal["house", "home", "who", "faq"], body: dict, db: Session = Depends(get_db)):
+    try:
+        data = content.SCHEMAS[key].model_validate(body)
+    except ValidationError as e:
+        err = e.errors()[0]
+        where = " › ".join(str(p) for p in err["loc"])
+        raise HTTPException(400, f"Check {where}: {err['msg'].removeprefix('Value error, ')}") from None
+    return content.save_section(db, key, data)
+
+
+@router.post("/content/{key}/reset")
+def reset_content(key: Literal["house", "home", "who", "faq"], db: Session = Depends(get_db)):
+    return content.reset_section(db, key)
+
+
+@router.post("/content/photo", status_code=201)
+def upload_site_photo(photo: UploadFile = File(...)):
+    """Saves a picture for the homepage and returns its address; the page form then stores it on its slot."""
+    if not get_settings().can_upload_photos:
+        raise HTTPException(400, "Photo uploads aren't set up on this server yet.")
+    ctype, data = _read_photo(photo)
+    try:
+        url = save_photo(f"site-{int(time.time() * 1000)}-{secrets.token_hex(3)}.{IMAGE_TYPES.get(ctype, 'jpg')}", data, ctype)
+    except Exception:
+        log.exception("Photo upload failed")
+        raise HTTPException(502, "The photo couldn't be saved. Try again in a minute.") from None
+    return {"src": url}

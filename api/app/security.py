@@ -62,6 +62,12 @@ def current_admin(
     return user
 
 
+def owner_only(user: AdminUser = Depends(current_admin)) -> AdminUser:
+    if user.role != "OWNER":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an owner can do that.")
+    return user
+
+
 class LoginLimiter:
     """Allows `limit` failed logins per key in a sliding window. In-memory, per process."""
 

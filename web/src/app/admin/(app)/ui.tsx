@@ -117,3 +117,5 @@ export const btnDanger = `${btn} bg-ember text-white hover:bg-[#a83e23]`;
 export const input =
   "h-11 w-full rounded-xl bg-paper px-3.5 text-[1rem] ring-1 ring-line-strong outline-none transition-shadow placeholder:text-ink/35 focus:ring-2 focus:ring-ink sm:text-[0.95rem]";
 export const link = "font-medium underline decoration-line-strong underline-offset-4 hover:decoration-ink";
+/** A native select dressed like the inputs, with a quiet chevron. */
+export const select = `${input} appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236d716e%22 stroke-width=%222.5%22><path d=%22m6 9 6 6 6-6%22/></svg>')] bg-[right_0.9rem_center] bg-no-repeat pr-9`;

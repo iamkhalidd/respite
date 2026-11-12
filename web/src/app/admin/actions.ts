@@ -68,15 +68,80 @@ export async function moveIn(requestId: string, _: FormState, form: FormData): P
 }
 
 /* ───── Rooms ───── */
-export async function saveRoom(id: string, form: FormData) {
-  await admin.put(`/admin/rooms/${id}`, {
-    name: str(form, "name"),
-    summary: str(form, "summary"),
-    description: str(form, "description"),
-    rentCents: cents(form.get("rent")),
-    depositCents: cents(form.get("deposit")),
-    features: str(form, "features").split(/\n|,/).map((s) => s.trim()).filter(Boolean),
+export async function saveRoom(id: string, _: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(async () => {
+    await admin.put(`/admin/rooms/${id}`, {
+      name: str(form, "name"),
+      summary: str(form, "summary"),
+      description: str(form, "description"),
+      rentCents: cents(form.get("rent")),
+      depositCents: cents(form.get("deposit")),
+      features: str(form, "features").split(/\n|,/).map((s) => s.trim()).filter(Boolean),
+      kind: str(form, "kind") || undefined,
+      floor: str(form, "floor") || undefined,
+      bathroom: str(form, "bathroom") || undefined,
+      hidden: !form.has("visible"),
+    });
+    return { ok: "Saved" };
   });
+  refresh();
+  return state;
+}
+
+/** Adds a room (hidden until the owner shows it) and opens it so photos and words can be filled in. */
+export async function createRoom(_: FormState, form: FormData): Promise<FormState> {
+  let id = "";
+  const kind = str(form, "kind");
+  const state = await attempt(async () => {
+    const room = await admin.post<{ id: string }>("/admin/rooms", {
+      name: str(form, "name").trim(),
+      kind,
+      floor: str(form, "floor"),
+      bathroom: str(form, "bathroom"),
+      rentCents: cents(form.get("rent")),
+      depositCents: cents(form.get("deposit")) || 0,
+      beds: kind === "PRIVATE" ? 1 : Number(str(form, "beds")) || 1,
+    });
+    id = room.id;
+  });
+  if (!id) return state;
+  refresh();
+  redirect(`/admin/rooms/${id}?new=1`);
+}
+
+export async function deleteRoom(id: string) {
+  await admin.delete(`/admin/rooms/${id}`);
+  refresh();
+  redirect("/admin/rooms?deleted=1");
+}
+
+/** Moves a room one place up or down the list the site shows. */
+export async function moveRoom(ids: string[], index: number, by: -1 | 1) {
+  const to = index + by;
+  if (to < 0 || to >= ids.length) return;
+  const next = [...ids];
+  [next[index], next[to]] = [next[to], next[index]];
+  await admin.post("/admin/rooms/order", { ids: next });
+  refresh();
+}
+
+export async function addBed(roomId: string): Promise<FormState> {
+  const state = await attempt(async () => {
+    await admin.post(`/admin/rooms/${roomId}/beds`, {});
+  });
+  refresh();
+  return state;
+}
+
+export async function renameBed(bedId: string, form: FormData) {
+  const label = str(form, "label").trim();
+  if (!label) return;
+  await admin.patch(`/admin/beds/${bedId}`, { label });
+  refresh();
+}
+
+export async function deleteBed(bedId: string) {
+  await admin.delete(`/admin/beds/${bedId}`);
   refresh();
 }
 
@@ -178,4 +243,81 @@ export async function sendTestEmail(): Promise<FormState> {
   const state = await attempt(() => admin.post<{ ok: string }>("/admin/notifications/test"));
   refresh();
   return state;
+}
+
+/* ───── Website: words, photos, house details ───── */
+const SECTIONS = ["house", "home", "who", "faq"] as const;
+type Section = (typeof SECTIONS)[number];
+const isSection = (k: string): k is Section => (SECTIONS as readonly string[]).includes(k);
+
+/** The editors send the whole section; the API checks every field and says which one is wrong. */
+export async function saveContent(key: string, data: unknown): Promise<FormState> {
+  if (!isSection(key)) return { error: "Unknown section." };
+  const state = await attempt(async () => {
+    await admin.put(`/admin/content/${key}`, data);
+    return { ok: "Saved. The site shows it now." };
+  });
+  refresh();
+  return state;
+}
+
+export async function resetContent(key: string): Promise<FormState> {
+  if (!isSection(key)) return { error: "Unknown section." };
+  const state = await attempt(async () => {
+    await admin.post(`/admin/content/${key}/reset`);
+    return { ok: "Back to the original words." };
+  });
+  refresh();
+  return state;
+}
+
+/** Uploads a picture and hands back its address; the editor puts it on the slot and saves with the page. */
+export async function uploadSitePhoto(form: FormData): Promise<{ src?: string; error?: string }> {
+  const file = form.get("photo") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a photo first." };
+  const body = new FormData();
+  body.set("photo", file);
+  try {
+    return await admin.post<{ src: string }>("/admin/content/photo", body);
+  } catch (e) {
+    if (e instanceof ApiError) return { error: e.message };
+    throw e;
+  }
+}
+
+/* ───── Team ───── */
+export async function inviteUser(_: FormState, form: FormData): Promise<FormState> {
+  const name = str(form, "name").trim();
+  const state = await attempt(async () => {
+    await admin.post("/admin/users", {
+      name,
+      email: str(form, "email").trim(),
+      password: str(form, "password"),
+      role: str(form, "role") === "OWNER" ? "OWNER" : "STAFF",
+    });
+    return { ok: `${name || "They"} can log in now with that email and password.` };
+  });
+  refresh();
+  return state;
+}
+
+export async function setUserRole(id: string, role: "OWNER" | "STAFF") {
+  await admin.patch(`/admin/users/${id}`, { role });
+  refresh();
+}
+
+export async function removeUser(id: string) {
+  await admin.delete(`/admin/users/${id}`);
+  refresh();
+}
+
+/** A new password signs out every other device; this one gets a fresh login so it stays in. */
+export async function changePassword(_: FormState, form: FormData): Promise<FormState> {
+  const next = str(form, "newPassword");
+  if (next !== str(form, "confirm")) return { error: "The two new passwords don't match." };
+  return attempt(async () => {
+    const r = await admin.post<{ accessToken: string; expiresAt: Date }>("/auth/password", { currentPassword: str(form, "currentPassword"), newPassword: next });
+    await setSession(r.accessToken, r.expiresAt);
+    return { ok: "Password changed. Other devices are signed out." };
+  });
 }

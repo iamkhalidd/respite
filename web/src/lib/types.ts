@@ -5,7 +5,7 @@ export type BedState = "open" | "soon" | "taken";
 export type Room = {
   id: string; slug: string; name: string; kind: string; floor: string; bathroom: string;
   rentCents: number; depositCents: number; summary: string; description: string;
-  features: string; photos: string; tone: string; sortOrder: number; createdAt: Date;
+  features: string; photos: string; tone: string; sortOrder: number; hidden: boolean; createdAt: Date;
 };
 export type Bed = { id: string; label: string; roomId: string; availableFrom: Date | null };
 export type Request = {
@@ -33,7 +33,8 @@ export type RoomWithBeds = Room & {
   open: number;
   soon: Date | null;
 };
-export type AdminUser = { id: string; email: string; name: string; lastLoginAt: Date | null; createdAt: Date };
+export type Role = "OWNER" | "STAFF";
+export type AdminUser = { id: string; email: string; name: string; role: Role; lastLoginAt: Date | null; createdAt: Date };
 
 export type NotificationStatus = "PENDING" | "SENT" | "FAILED";
 export type Notification = {
@@ -41,3 +42,18 @@ export type Notification = {
   subject: string; body: string; link: string | null; status: NotificationStatus; attempts: number;
   nextAttemptAt: Date | null; lastError: string | null; sentAt: Date | null; readAt: Date | null;
 };
+
+/* Words, photos and contact details the owners edit under Website in the dashboard. */
+export type SitePhoto = { src: string; alt: string; caption: string };
+export type House = { phone: string; phoneHref: string; address: string; town: string; tourNote: string; footerBlurb: string; footerTagline: string };
+export type IncludedItem = { label: string; title: string; body: string };
+export type HomeCopy = {
+  heroLine1: string; heroLine2: string; heroText: string; statement: string;
+  includedTitle: string; includedText: string; included: IncludedItem[];
+  referralsLine1: string; referralsLine2: string; referralsText: string;
+  closingLine1: string; closingLine2: string; closingText: string;
+  photos: Record<"kitchen" | "road" | "porch" | "referral", SitePhoto>;
+};
+export type Chapter = { key: "VETERAN" | "RECOVERY" | "SENIOR"; word: string; line: string; body: string; good: string[]; referred: string; photo: SitePhoto };
+export type FaqItem = { q: string; a: string };
+export type SiteContent = { house: House; home: HomeCopy; who: { chapters: Chapter[] }; faq: { items: FaqItem[] } };

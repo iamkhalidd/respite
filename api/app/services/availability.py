@@ -27,8 +27,11 @@ def sorted_beds(beds: list[Bed]) -> list[Bed]:
     return sorted(beds, key=lambda b: _natural(b.label))
 
 
-def get_beds(db: Session) -> list[dict]:
-    beds = db.scalars(select(Bed).options(selectinload(Bed.room), selectinload(Bed.resident))).all()
+def get_beds(db: Session, public: bool = False) -> list[dict]:
+    q = select(Bed).join(Bed.room).options(selectinload(Bed.room), selectinload(Bed.resident)).order_by(Room.sortOrder)
+    if public:
+        q = q.where(Room.hidden.is_(False))
+    beds = db.scalars(q).all()
     return [
         {
             "id": b.id,
@@ -39,14 +42,15 @@ def get_beds(db: Session) -> list[dict]:
             "availableFrom": iso(b.availableFrom),
             "residentName": b.resident.name if b.resident and b.resident.active else None,
         }
-        for b in sorted_beds(list(beds))
+        for b in sorted(beds, key=lambda b: (b.room.sortOrder, _natural(b.label)))
     ]
 
 
-def get_rooms_with_beds(db: Session) -> list[dict]:
-    rooms = db.scalars(
-        select(Room).options(selectinload(Room.beds).selectinload(Bed.resident)).order_by(Room.sortOrder)
-    ).all()
+def get_rooms_with_beds(db: Session, public: bool = False) -> list[dict]:
+    q = select(Room).options(selectinload(Room.beds).selectinload(Bed.resident)).order_by(Room.sortOrder, Room.createdAt)
+    if public:
+        q = q.where(Room.hidden.is_(False))
+    rooms = db.scalars(q).all()
     out = []
     for r in rooms:
         beds = sorted_beds(list(r.beds))

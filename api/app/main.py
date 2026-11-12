@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select, text
 
 from .config import get_settings
 from .db import Base, SessionLocal, engine
@@ -16,9 +16,31 @@ from .services.notify import outbox
 log = logging.getLogger("respite")
 
 
+def add_missing_columns() -> None:
+    """create_all makes new tables but never changes old ones, so columns added later are added here.
+    Only columns with a server default (or nullable ones) are added, so existing rows stay valid."""
+    found = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not found.has_table(table.name):
+                continue
+            have = {c["name"] for c in found.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have or (col.server_default is None and not col.nullable):
+                    continue
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(engine.dialect)}'
+                if col.server_default is not None:
+                    default = col.server_default.arg
+                    default = default.compile(engine) if hasattr(default, "compile") else default
+                    ddl += f" NOT NULL DEFAULT {default}"
+                conn.execute(text(ddl))
+                log.warning("Added column %s.%s", table.name, col.name)
+
+
 def bootstrap() -> None:
-    """Creates any missing tables, and the first owner account if there are none yet."""
+    """Creates any missing tables and columns, and the first owner account if there are none yet."""
     Base.metadata.create_all(engine)
+    add_missing_columns()
     s = get_settings()
     with SessionLocal() as db:
         if db.scalar(select(func.count()).select_from(AdminUser)):

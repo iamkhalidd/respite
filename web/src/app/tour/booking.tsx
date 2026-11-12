@@ -2,10 +2,11 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { X, ArrowLeft, Loader2, CalendarCheck } from "lucide-react";
+import { X, ArrowLeft, Loader2, CalendarCheck, CalendarPlus } from "lucide-react";
 import { Q, Field, tile } from "../apply/flow";
 import { bookTour, tourSlots, type Program } from "./actions";
 import { clock, dayChip, longDay } from "@/lib/when";
+import { tourCalendar } from "@/lib/calendar";
 
 type Day = { date: string; times: string[] };
 type Phone = { label: string; href: string };
@@ -24,7 +25,7 @@ export function Booking({ days: initialDays, phone, address }: { days: Day[]; ph
   const [form, setForm] = useState({ name: "", phone: "", email: "", note: "" });
   const [program, setProgram] = useState<Program | undefined>();
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ firstName: string; when: string; email: boolean } | null>(null);
+  const [done, setDone] = useState<{ firstName: string; when: string; email: boolean; cal: ReturnType<typeof tourCalendar> } | null>(null);
   const [pending, start] = useTransition();
   const reduce = useReducedMotion();
 
@@ -36,7 +37,12 @@ export function Booking({ days: initialDays, phone, address }: { days: Day[]; ph
     start(async () => {
       const res = await bookTour({ date, time, ...form, email: form.email.trim() || undefined, note: form.note.trim() || undefined, program });
       if (res.ok) {
-        setDone({ firstName: res.firstName, when: res.when, email: !!form.email.trim() });
+        setDone({
+          firstName: res.firstName,
+          when: res.when,
+          email: !!form.email.trim(),
+          cal: tourCalendar({ token: res.token, startsAt: res.startsAt, endsAt: res.endsAt, address, phone: phone.label }),
+        });
         return;
       }
       setError(res.error);
@@ -83,6 +89,17 @@ export function Booking({ days: initialDays, phone, address }: { days: Day[]; ph
                 </a>
                 .
               </p>
+              <div className="mt-8 flex flex-col items-center gap-2">
+                <p className="mono text-[0.72rem] uppercase text-moss">Add it to your calendar</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <a href={done.cal.google} target="_blank" rel="noopener noreferrer" className="btn btn-ghost press !h-11 !px-5">
+                    <CalendarPlus size={16} /> Google Calendar
+                  </a>
+                  <a href={done.cal.ics} className="btn btn-ghost press !h-11 !px-5">
+                    <CalendarPlus size={16} /> Apple or Outlook
+                  </a>
+                </div>
+              </div>
               <div className="mt-9 flex flex-wrap justify-center gap-3">
                 <Link href="/rooms" className="btn btn-primary press !h-12 !px-6">Look at rooms</Link>
                 <Link href="/" className="btn btn-ghost press !h-12 !px-6">Back to home</Link>

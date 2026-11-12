@@ -6,7 +6,7 @@ on the existing Postgres database without a migration. Attribute names follow th
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, UtcDateTime, new_id, now
@@ -24,6 +24,9 @@ class AdminUser(Base):
     role: Mapped[str] = mapped_column(String, default="OWNER", server_default=text("'OWNER'"))
     lastLoginAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    # forgot password: only a hash of the emailed token is kept, and it works once, for an hour
+    resetTokenHash: Mapped[str | None] = mapped_column(String, nullable=True)
+    resetExpiresAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
 
 class Room(Base):
@@ -99,6 +102,10 @@ class Resident(Base):
     portalToken: Mapped[str] = mapped_column(String, unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    # what happened to the deposit after they left; null until the owner records it
+    depositReturnedCents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    depositNote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    depositSettledAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     bed: Mapped[Bed | None] = relationship(back_populates="resident")
     request: Mapped[Request | None] = relationship(back_populates="resident")
@@ -119,6 +126,7 @@ class Charge(Base):
     method: Mapped[str | None] = mapped_column(String, nullable=True)
     stripeSessionId: Mapped[str | None] = mapped_column(String, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    reminderSentAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)  # the one overdue reminder
 
     resident: Mapped[Resident] = relationship(back_populates="charges")
 
@@ -134,9 +142,9 @@ class Notification(Base):
     __table_args__ = (Index("Notification_channel_status_idx", "channel", "status", "nextAttemptAt"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
-    channel: Mapped[str] = mapped_column(String)  # EMAIL | INBOX
+    channel: Mapped[str] = mapped_column(String)  # EMAIL | SMS | INBOX
     kind: Mapped[str] = mapped_column(String)  # request.new, payment.received, ... (services/notify.py)
-    recipient: Mapped[str | None] = mapped_column(String, nullable=True)  # email address; null for the inbox
+    recipient: Mapped[str | None] = mapped_column(String, nullable=True)  # email address or phone; null for the inbox
     subject: Mapped[str] = mapped_column(String)
     body: Mapped[str] = mapped_column(Text, default="")
     link: Mapped[str | None] = mapped_column(String, nullable=True)  # dashboard path, e.g. /admin/requests/<id>
@@ -199,3 +207,46 @@ class WaitlistEntry(Base):
     token: Mapped[str] = mapped_column(String, unique=True)  # their link to leave the list
 
     room: Mapped[Room | None] = relationship()
+
+
+class ResidentNote(Base):
+    """A dated line in a resident's file: a note, a check-in, or something that happened."""
+
+    __tablename__ = "ResidentNote"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    residentId: Mapped[str] = mapped_column(ForeignKey("Resident.id", ondelete="CASCADE"), index=True)
+    createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    kind: Mapped[str] = mapped_column(String, default="NOTE")  # NOTE | CHECKIN | INCIDENT
+    body: Mapped[str] = mapped_column(Text)
+    author: Mapped[str] = mapped_column(String, default="")
+
+
+class ResidentDocument(Base):
+    """A signed agreement, house rules, an ID. Kept in the database, not public storage, so only the dashboard can open it."""
+
+    __tablename__ = "ResidentDocument"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    residentId: Mapped[str] = mapped_column(ForeignKey("Resident.id", ondelete="CASCADE"), index=True)
+    createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    name: Mapped[str] = mapped_column(String)
+    contentType: Mapped[str] = mapped_column(String)
+    size: Mapped[int] = mapped_column(Integer)
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    uploadedBy: Mapped[str] = mapped_column(String, default="")
+
+
+class RepairRequest(Base):
+    """Something broken, reported by a resident from their portal."""
+
+    __tablename__ = "RepairRequest"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    residentId: Mapped[str] = mapped_column(ForeignKey("Resident.id", ondelete="CASCADE"), index=True)
+    createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    area: Mapped[str] = mapped_column(String)
+    body: Mapped[str] = mapped_column(Text)
+    urgent: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String, default="OPEN")  # OPEN | DOING | DONE
+    ownerNote: Mapped[str] = mapped_column(Text, default="")
+    doneAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    resident: Mapped[Resident] = relationship()

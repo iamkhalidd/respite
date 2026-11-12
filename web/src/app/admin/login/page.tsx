@@ -42,6 +42,11 @@ export default function LoginPage() {
               className="h-12 w-full rounded-xl bg-white/[.07] px-4 text-[1rem] text-white outline-none ring-1 ring-white/15 transition-shadow focus:ring-2 focus:ring-porch"
             />
           </label>
+          <p className="mt-2 text-right">
+            <Link href="/admin/forgot" className="text-[0.84rem] text-white/55 underline decoration-white/20 underline-offset-4 hover:text-white">
+              Forgot password?
+            </Link>
+          </p>
           {state?.error && (
             <p role="alert" className="mt-3 text-[0.88rem] font-medium text-[#ff9c82]">
               {state.error}

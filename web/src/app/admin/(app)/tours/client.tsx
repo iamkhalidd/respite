@@ -211,3 +211,61 @@ export function CallerForm() {
     </Card>
   );
 }
+
+/** A private calendar address, so every tour shows up in the owners' own phone calendar. */
+export function FeedCard({ url, reset }: { url: string; reset: () => Promise<void> }) {
+  const [copied, setCopied] = useState(false);
+  const [sure, setSure] = useState(false);
+  const [pending, start] = useTransition();
+  const webcal = url.replace(/^https?:/, "webcal:");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHead title="Your phone calendar" hint="Subscribe once and every booked tour shows up there. Calendar apps check for new ones on their own schedule, which can take a few hours." />
+      <div className="space-y-3 px-5 pb-5 pt-4 sm:px-6">
+        <input readOnly value={url} aria-label="Calendar address" onFocus={(e) => e.currentTarget.select()} className={`${input} mono !text-[0.8rem]`} />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={copy} className={`${btnPrimary} !h-10 !px-4 !text-[0.88rem]`}>
+            {copied ? <Check size={15} strokeWidth={3} /> : null} {copied ? "Copied" : "Copy address"}
+          </button>
+          <a href={webcal} className={`${btnQuiet} !h-10 !px-4 !text-[0.88rem]`}>
+            Open in calendar
+          </a>
+        </div>
+        <p className="text-[0.82rem] leading-relaxed text-moss">
+          In Google Calendar, choose Other calendars, then From URL, and paste it. Anyone with this address can see tour names and phone numbers, so keep it to the team.
+        </p>
+        {sure ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-ink/[.04] p-3 text-[0.84rem]">
+            <span className="flex-1">The old address stops working. Everyone subscribed will need the new one.</span>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => start(async () => { await reset(); setSure(false); })}
+              className={`${btnQuiet} !h-9 !px-3 !text-[0.84rem]`}
+            >
+              {pending && <Loader2 size={14} className="animate-spin" />} Make a new one
+            </button>
+            <button type="button" onClick={() => setSure(false)} className="h-9 px-2 text-moss hover:text-ink">
+              Keep it
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setSure(true)} className="text-[0.84rem] font-medium text-moss underline decoration-line-strong underline-offset-4 hover:text-ink">
+            Shared it by mistake? Get a new address
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}

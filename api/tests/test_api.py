@@ -442,3 +442,219 @@ def test_waitlist_join_announce_and_leave(client):
     assert client.get(f"/public/waitlist/{token}").json()["firstName"] == "Pat"
     assert client.post(f"/public/waitlist/{token}/leave").json()["status"] == "REMOVED"
     assert client.get("/admin/waitlist", headers=auth).json() == []
+
+
+def test_forgot_and_reset_password(client):
+    _login(client)
+    assert client.post("/auth/forgot", json={"email": "nobody@example.com"}).json() == {"ok": True}
+    assert client.post("/auth/forgot", json={"email": " Owner@Example.com "}).json() == {"ok": True}
+    mail = _sent("auth.reset")
+    assert len(mail) == 1 and mail[0].recipient == "owner@example.com"
+    token = mail[0].body.split("/admin/reset/")[1].split()[0]
+
+    assert client.get(f"/auth/reset/{token}").json() == {"valid": True, "email": "owner@example.com"}
+    assert client.get("/auth/reset/not-a-token").json()["valid"] is False
+    assert client.post("/auth/reset", json={"token": token, "password": "short"}).status_code == 422
+    old = _login(client)
+    r = client.post("/auth/reset", json={"token": token, "password": "a-reset-password-123"})
+    assert r.status_code == 200 and "resetTokenHash" not in r.json()["user"]
+    assert client.get("/auth/me", headers=old).status_code == 401  # every old session is signed out
+    assert client.post("/auth/reset", json={"token": token, "password": "another-password-1"}).status_code == 400  # works once
+    assert client.post("/auth/login", json={"email": "owner@example.com", "password": "a-reset-password-123"}).status_code == 200
+
+    # put it back for the tests after this one
+    h = {"Authorization": f"Bearer {r.json()['accessToken']}"}
+    assert client.post("/auth/password", headers=h, json={"currentPassword": "a-reset-password-123", "newPassword": PW}).status_code == 200
+
+
+def test_forgot_password_is_rate_limited(client):
+    from app.security import login_limiter
+
+    login_limiter._fails.clear()
+    for _ in range(8):
+        client.post("/auth/forgot", json={"email": "someone@example.com"})
+    assert client.post("/auth/forgot", json={"email": "someone@example.com"}).status_code == 429
+    login_limiter._fails.clear()
+
+
+def _new_resident(client, auth, name: str, email: str | None, phone: str = "804 555 0199") -> dict:
+    req = client.post("/public/requests", json={
+        "forWhom": "SELF", "program": "VETERAN", "moveIn": "ASAP", "payment": "VA", "name": name, "phone": phone, **({"email": email} if email else {}),
+    }).json()["id"]
+    from app.models import Bed, Room
+    from app.routers.admin import _next_bed_label
+
+    with SessionLocal() as db:  # a fresh bed each time, so earlier tests can't fill the house
+        bed = Bed(label=_next_bed_label(db), roomId=db.query(Room).first().id)
+        db.add(bed)
+        db.commit()
+        bed = {"id": bed.id}
+    mi = client.post(f"/admin/requests/{req}/move-in", headers=auth, json={"bedId": bed["id"], "moveInDate": "2026-11-01", "rentCents": 80000, "depositCents": 25000})
+    assert mi.status_code == 201, mi.text
+    return client.get(f"/admin/residents/{mi.json()['residentId']}", headers=auth).json()
+
+
+def test_overdue_rent_reminded_once(client, monkeypatch):
+    auth = _login(client)
+    from datetime import timedelta
+
+    from app.config import get_settings
+
+    s = get_settings()
+    for k, v in {"twilio_account_sid": "AC1", "twilio_auth_token": "t", "twilio_from": "+15405550100"}.items():
+        monkeypatch.setattr(s, k, v)
+    texts_out = []
+    monkeypatch.setattr(notify, "deliver_sms", lambda to, body: texts_out.append(to))  # never call Twilio from tests
+    res = _new_resident(client, auth, "Owen Late", "owen@example.com", phone="(804) 555-0177")
+    noemail = _new_resident(client, auth, "Nell Quiet", None)
+    client.patch(f"/admin/residents/{noemail['id']}", headers=auth, json={"name": "Nell Quiet", "phone": "", "email": "", "rentCents": 80000})
+    late = (now() - timedelta(days=5)).date().isoformat()
+    fresh = (now() - timedelta(days=1)).date().isoformat()
+    ancient = (now() - timedelta(days=90)).date().isoformat()
+    for rid, due in ((res["id"], late), (res["id"], fresh), (res["id"], ancient), (noemail["id"], late)):
+        assert client.post(f"/admin/residents/{rid}/charges", headers=auth, json={"label": f"Rent {due}", "amountCents": 10000, "dueDate": due}).status_code == 201
+
+    cron = {"Authorization": "Bearer cron-test"}
+    first = client.post("/cron/notifications", headers=cron).json()
+    assert first["overdue"] >= 2
+    assert client.post("/cron/notifications", headers=cron).json()["overdue"] == 0
+    owen = [n for n in _sent("rent.overdue") if n.recipient == "owen@example.com"]
+    assert len(owen) == 1 and late in owen[0].body and fresh not in owen[0].body and ancient not in owen[0].body
+    with SessionLocal() as db:
+        texts = db.query(Notification).filter_by(channel="SMS", kind="rent.overdue", recipient="+18045550177").all()
+        assert len(texts) == 1 and "/portal/" in texts[0].body and texts[0].status == "SENT"
+        inbox = db.query(Notification).filter_by(channel="INBOX", kind="rent.overdue").all()
+        assert any("Nell Quiet" in n.subject for n in inbox)
+    assert "+18045550177" in texts_out
+
+
+def test_sms_needs_twilio_and_a_real_number():
+    from app.services.sms import normalize
+
+    assert normalize("(804) 555-0100") == "+18045550100"
+    assert normalize("1 804 555 0100") == "+18045550100"
+    assert normalize("+44 20 7946 0958") == "+442079460958"
+    assert normalize("555-0100") is None and normalize(None) is None
+    with SessionLocal() as db:
+        assert notify.sms(db, "804 555 0100", "hi", "test") is None  # no Twilio settings in tests
+
+
+def test_notes_documents_deposit_statement_and_export(client):
+    auth = _login(client)
+    res = _new_resident(client, auth, "Iris Record", "iris@example.com")
+    rid, token = res["id"], res["portalToken"]
+
+    # notes
+    assert client.post(f"/admin/residents/{rid}/notes", headers=auth, json={"kind": "CHECKIN", "body": "  "}).status_code == 400
+    n = client.post(f"/admin/residents/{rid}/notes", headers=auth, json={"kind": "INCIDENT", "body": "Smoke alarm went off at 2am."}).json()
+    assert n["kind"] == "INCIDENT" and n["author"]
+    assert [x["body"] for x in client.get(f"/admin/residents/{rid}/notes", headers=auth).json()] == ["Smoke alarm went off at 2am."]
+    assert client.delete(f"/admin/notes/{n['id']}", headers=auth).status_code == 204
+    assert client.get(f"/admin/residents/{rid}/notes", headers=auth).json() == []
+
+    # documents are private: stored in the database, only served to a signed in owner
+    bad = client.post(f"/admin/residents/{rid}/documents", headers=auth, files={"file": ("x.exe", b"MZ", "application/octet-stream")})
+    assert bad.status_code == 400
+    up = client.post(f"/admin/residents/{rid}/documents", headers=auth, files={"file": ("lease.pdf", b"%PDF-1.4 test", "application/pdf")})
+    assert up.status_code == 201, up.text
+    doc = up.json()
+    assert doc["size"] == 13 and "data" not in doc
+    assert client.get(f"/admin/documents/{doc['id']}").status_code == 401
+    got = client.get(f"/admin/documents/{doc['id']}", headers=auth)
+    assert got.content == b"%PDF-1.4 test" and got.headers["content-type"] == "application/pdf"
+    assert [d["name"] for d in client.get(f"/admin/residents/{rid}/documents", headers=auth).json()] == ["lease.pdf"]
+    assert client.delete(f"/admin/documents/{doc['id']}", headers=auth).status_code == 204
+
+    # pay the deposit, move out, settle it
+    dep = next(c for c in res["charges"] if c["label"] == "Security deposit")
+    client.post(f"/admin/charges/{dep['id']}/pay", headers=auth, json={"method": "CASH"})
+    assert client.patch(f"/admin/residents/{rid}/deposit", headers=auth, json={"returnedCents": 0}).status_code == 400  # still living there
+    client.post(f"/admin/residents/{rid}/move-out", headers=auth)
+    assert client.patch(f"/admin/residents/{rid}/deposit", headers=auth, json={"returnedCents": 30000}).status_code == 400  # more than paid
+    assert client.patch(f"/admin/residents/{rid}/deposit", headers=auth, json={"returnedCents": 20000}).status_code == 400  # kept some, no reason
+    d = client.patch(f"/admin/residents/{rid}/deposit", headers=auth, json={"returnedCents": 20000, "note": "Replaced a broken blind."}).json()
+    assert d == {**d, "paidCents": 25000, "returnedCents": 20000, "keptCents": 5000}
+
+    # the statement, for the owner and for the resident
+    st = client.get(f"/admin/residents/{rid}/statement", headers=auth).json()
+    assert st["resident"]["name"] == "Iris Record" and st["totals"]["paidCents"] == 25000
+    assert st["totals"]["owedCents"] == st["totals"]["billedCents"] - 25000
+    assert st["deposit"]["returnedCents"] == 20000 and st["house"]["phone"]
+    assert client.get(f"/portal/{token}/statement").json()["totals"] == st["totals"]
+    assert client.get("/portal/nope/statement").status_code == 404
+
+    # the accountant's spreadsheet
+    csv_ = client.get("/admin/export.csv?kind=payments", headers=auth)
+    assert csv_.status_code == 200 and csv_.headers["content-type"].startswith("text/csv")
+    lines = csv_.text.lstrip("﻿").splitlines()
+    assert lines[0] == "Date paid,Resident,For,Amount,Method,Due date"
+    assert any(line.startswith(now().date().isoformat()) and "Iris Record,Security deposit,250.00,Cash" in line for line in lines)
+    assert "Iris Record" not in client.get("/admin/export.csv?kind=payments&from=2020-01-01&to=2020-12-31", headers=auth).text
+    assert client.get("/admin/export.csv?kind=charges", headers=auth).text.lstrip("﻿").startswith("Due date,Resident")
+    assert client.get("/admin/export.csv?from=nope", headers=auth).status_code == 400
+    assert client.get("/admin/export.csv").status_code == 401
+
+
+def test_repairs_from_the_portal(client):
+    auth = _login(client)
+    res = _new_resident(client, auth, "Rex Fixit", "rex@example.com")
+    token = res["portalToken"]
+    assert client.post(f"/portal/{token}/repairs", json={"area": "Bathroom", "body": "  "}).status_code in (400, 422)
+    r = client.post(f"/portal/{token}/repairs", json={"area": "Bathroom", "body": "The sink drips all night.", "urgent": True})
+    assert r.status_code == 201, r.text
+    assert client.get(f"/portal/{token}").json()["repairs"][0]["status"] == "OPEN"
+    with SessionLocal() as db:
+        alert = db.query(Notification).filter_by(channel="INBOX", kind="repair.new").one()
+        assert alert.subject.startswith("Urgent repair: Bathroom, Rex Fixit")
+
+    listed = client.get("/admin/repairs", headers=auth).json()
+    assert [x["resident"]["name"] for x in listed] == ["Rex Fixit"]
+    rep = listed[0]["id"]
+    assert client.patch(f"/admin/repairs/{rep}", headers=auth, json={"status": "DOING"}).json()["status"] == "DOING"
+    assert not [n for n in _sent("repair.done") if n.recipient == "rex@example.com"]
+    done = client.patch(f"/admin/repairs/{rep}", headers=auth, json={"status": "DONE", "ownerNote": "New washer fitted."}).json()
+    assert done["doneAt"] and client.get("/admin/repairs", headers=auth).json() == []
+    told = [n for n in _sent("repair.done") if n.recipient == "rex@example.com"]
+    assert len(told) == 1 and "New washer fitted." in told[0].body
+    assert [x["id"] for x in client.get("/admin/repairs?status=done", headers=auth).json()] == [rep]
+
+    client.post(f"/admin/residents/{res['id']}/move-out", headers=auth)
+    assert client.post(f"/portal/{token}/repairs", json={"area": "Other", "body": "Still dripping"}).status_code == 403
+
+
+def test_tour_calendar_files_and_owner_feed(client):
+    auth = _login(client)
+    from datetime import timedelta
+
+    from app.services import tours
+
+    day = (tours.local_now().date() + timedelta(days=4)).isoformat()
+    t = client.post("/admin/tours", headers=auth, json={"date": day, "time": "11:15", "name": "Cal Endar", "phone": "804-555-0144", "email": "cal@example.com"}).json()
+    view = client.get(f"/public/tours/{t['token']}").json()
+    from datetime import UTC
+
+    start = tours.starts_at(day, "11:15").astimezone(UTC)
+    assert view["startsAt"].endswith("Z") and view["endsAt"] > view["startsAt"]
+    assert view["startsAt"].startswith(start.strftime("%Y-%m-%dT%H:%M"))
+    assert any(f"/tour/{t['token']}/calendar" in n.body for n in _sent("tour.confirmed") if n.recipient == "cal@example.com")
+
+    one = client.get(f"/public/tours/{t['token']}/calendar.ics")
+    assert one.status_code == 200 and one.headers["content-type"].startswith("text/calendar")
+    assert "BEGIN:VEVENT" in one.text and f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}" in one.text
+    assert "804-555-0144" not in one.text  # the visitor's own file has the house's details, not theirs
+
+    # the owners' private feed
+    assert client.get("/admin/tours/feed").status_code == 401
+    url = client.get("/admin/tours/feed", headers=auth).json()["url"]
+    assert url == client.get("/admin/tours/feed", headers=auth).json()["url"]  # stays the same
+    token = url.rsplit("/", 1)[1].removesuffix(".ics")
+    feed = client.get(f"/public/feeds/tours/{token}.ics")
+    assert feed.status_code == 200 and "Tour: Cal Endar" in feed.text and "804-555-0144" in feed.text
+    assert client.get("/public/feeds/tours/wrong.ics").status_code == 404
+    new = client.post("/admin/tours/feed/reset", headers=auth).json()["url"]
+    assert new != url and client.get(f"/public/feeds/tours/{token}.ics").status_code == 404
+
+    # the month view
+    month = client.get(f"/admin/tours?when=month&month={day[:7]}", headers=auth).json()
+    assert "Cal Endar" in [x["name"] for x in month]
+    assert client.get("/admin/tours?when=month&month=2026-13", headers=auth).status_code == 422

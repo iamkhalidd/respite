@@ -34,6 +34,31 @@ export async function login(_: unknown, form: FormData) {
   await setSession(session.accessToken, session.expiresAt);
   redirect("/admin");
 }
+/** Always answers the same way, so the form can't be used to find out who has an account. */
+export async function forgotPassword(_: unknown, form: FormData): Promise<{ error?: string; ok?: string; email?: string } | null> {
+  const email = str(form, "email").trim();
+  try {
+    await api.post("/auth/forgot", { email });
+  } catch (e) {
+    if (e instanceof ApiError && e.status < 500) return { error: e.message, email };
+    throw e;
+  }
+  return { ok: email, email };
+}
+export async function resetPassword(token: string, _: FormState, form: FormData): Promise<FormState> {
+  const password = str(form, "password");
+  if (password.length < 10) return { error: "Use at least 10 characters." };
+  if (password !== str(form, "confirm")) return { error: "The two passwords don't match." };
+  let session: { accessToken: string; expiresAt: Date };
+  try {
+    session = await api.post("/auth/reset", { token, password });
+  } catch (e) {
+    if (e instanceof ApiError && e.status < 500) return { error: e.message };
+    throw e;
+  }
+  await setSession(session.accessToken, session.expiresAt);
+  redirect("/admin");
+}
 export async function logout() {
   await clearSession();
   redirect("/admin/login");
@@ -359,5 +384,63 @@ export async function bookTourForCaller(_: FormState, form: FormData): Promise<F
 /* ───── Waitlist ───── */
 export async function setWaitlistStatus(id: string, status: "WAITING" | "NOTIFIED" | "REMOVED") {
   await admin.patch(`/admin/waitlist/${id}`, { status });
+  refresh();
+}
+
+/* ───── Resident file: notes, documents, deposit ───── */
+export async function addNote(residentId: string, _: FormState, form: FormData): Promise<FormState> {
+  return attempt(async () => {
+    const body = str(form, "body").trim();
+    if (!body) return { error: "Write the note first." };
+    await admin.post(`/admin/residents/${residentId}/notes`, { kind: str(form, "kind") || "NOTE", body });
+    refresh();
+    return { ok: "Saved." };
+  });
+}
+
+export async function deleteNote(id: string) {
+  await admin.delete(`/admin/notes/${id}`);
+  refresh();
+}
+
+export async function uploadDocument(residentId: string, _: FormState, form: FormData): Promise<FormState> {
+  const file = form.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "Choose a file first." };
+  // Vercel caps a request at about 4.5 MB, so keep each file under 4 MB
+  if (file.size > 4 * 1024 * 1024) return { error: "That file is over 4 MB. Try a smaller scan, or take a photo instead." };
+  return attempt(async () => {
+    const body = new FormData();
+    body.set("file", file);
+    await admin.post(`/admin/residents/${residentId}/documents`, body);
+    refresh();
+    return { ok: `Saved ${file.name}.` };
+  });
+}
+
+export async function deleteDocument(id: string) {
+  await admin.delete(`/admin/documents/${id}`);
+  refresh();
+}
+
+export async function settleDeposit(residentId: string, _: FormState, form: FormData): Promise<FormState> {
+  return attempt(async () => {
+    const returnedCents = cents(form.get("returned"));
+    if (!(returnedCents >= 0)) return { error: "Enter how much you gave back, even if it's 0." };
+    await admin.patch(`/admin/residents/${residentId}/deposit`, { returnedCents, note: str(form, "note").trim() });
+    refresh();
+    return { ok: "Deposit recorded." };
+  });
+}
+
+/* ───── Repairs ───── */
+export async function updateRepair(id: string, status: "OPEN" | "DOING" | "DONE", form?: FormData) {
+  const note = form?.get("ownerNote");
+  await admin.patch(`/admin/repairs/${id}`, { status, ...(note != null ? { ownerNote: String(note) } : {}) });
+  refresh();
+}
+
+/* ───── Tour calendar feed ───── */
+export async function resetTourFeed() {
+  await admin.post("/admin/tours/feed/reset");
   refresh();
 }

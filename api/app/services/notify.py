@@ -2,6 +2,7 @@
 
     notify.email(db, to, subject, text, kind)     queue an email
     notify.owner(db, kind, title, body, link)     put it in the dashboard inbox and email the owner
+    notify.sms(db, phone, text, kind)             queue a text (only when Twilio is set up)
 
 Both only add rows to the session; the caller commits as usual, so nothing goes out for an
 action that was rolled back. The outbox worker then sends the emails, retrying with backoff.
@@ -19,6 +20,7 @@ from ..config import get_settings
 from ..db import SessionLocal, now
 from ..models import Notification
 from .email import EmailError, deliver, site_url
+from .sms import deliver_sms, normalize
 
 log = logging.getLogger("respite.notify")
 
@@ -36,6 +38,10 @@ KINDS = {
     "waitlist.joined": "Joined the waitlist",
     "waitlist.opening": "Bed open, to the waitlist",
     "waitlist.told": "Waitlist told",
+    "rent.overdue": "Overdue rent reminder",
+    "repair.new": "Repair reported",
+    "repair.done": "Repair done",
+    "auth.reset": "Password reset link",
     "email.failed": "Email couldn't be sent",
     "test": "Test email",
 }
@@ -50,6 +56,17 @@ def email(db: Session, to: str | None, subject: str, text: str, kind: str) -> No
     if not to:
         return None
     n = Notification(channel="EMAIL", kind=kind, recipient=to, subject=subject[:250], body=text, status="PENDING", nextAttemptAt=now())
+    db.add(n)
+    _wake_after_commit(db)
+    return n
+
+
+def sms(db: Session, phone: str | None, text: str, kind: str) -> Notification | None:
+    """Queues a text. Does nothing when Twilio isn't set up or the number can't be read."""
+    to = normalize(phone)
+    if not to or not get_settings().sms_enabled:
+        return None
+    n = Notification(channel="SMS", kind=kind, recipient=to, subject=text[:250], body=text, status="PENDING", nextAttemptAt=now())
     db.add(n)
     _wake_after_commit(db)
     return n
@@ -71,7 +88,7 @@ def deliver_pending(db: Session, limit: int = 25) -> int:
     """Sends emails that are due and returns how many went out. Safe to run from several processes."""
     q = (
         select(Notification)
-        .where(Notification.channel == "EMAIL", Notification.status == "PENDING", Notification.nextAttemptAt <= now())
+        .where(Notification.channel.in_(("EMAIL", "SMS")), Notification.status == "PENDING", Notification.nextAttemptAt <= now())
         .order_by(Notification.createdAt)
         .limit(limit)
     )
@@ -81,7 +98,10 @@ def deliver_pending(db: Session, limit: int = 25) -> int:
     for n in db.scalars(q).all():
         n.attempts += 1
         try:
-            deliver(n.recipient or "", n.subject, n.body)
+            if n.channel == "SMS":
+                deliver_sms(n.recipient or "", n.body)
+            else:
+                deliver(n.recipient or "", n.subject, n.body)
         except Exception as e:  # one bad email must never jam the queue
             if not isinstance(e, EmailError):
                 log.exception("Unexpected error sending email %s", n.id)
@@ -89,16 +109,16 @@ def deliver_pending(db: Session, limit: int = 25) -> int:
             n.lastError = str(e)
             if n.attempts >= MAX_ATTEMPTS:
                 n.status, n.nextAttemptAt = "FAILED", None
-                log.error("Gave up on email %s to %s: %s", n.id, n.recipient, e)
+                log.error("Gave up on %s %s to %s: %s", n.channel, n.id, n.recipient, e)
                 # tell the owner in the dashboard (not by email: email is what's broken)
                 owner(
-                    db, "email.failed", f"Couldn't email {n.recipient}",
+                    db, "email.failed", f"Couldn't {'text' if n.channel == 'SMS' else 'email'} {n.recipient}",
                     f"“{n.subject}” failed {n.attempts} times. Last error: {e}",
                     "/admin/notifications?tab=email", send_email=False,
                 )
             else:
                 n.nextAttemptAt = now() + BACKOFF[n.attempts - 1]
-                log.warning("Email %s to %s failed (try %s), will retry: %s", n.id, n.recipient, n.attempts, e)
+                log.warning("%s %s to %s failed (try %s), will retry: %s", n.channel.title(), n.id, n.recipient, n.attempts, e)
         else:
             n.status, n.sentAt, n.lastError, n.nextAttemptAt = "SENT", now(), None, None
             sent += 1
@@ -146,9 +166,9 @@ class Outbox:
                 with SessionLocal() as db:
                     if time.monotonic() >= self._next_chores:
                         self._next_chores = time.monotonic() + 300
-                        from .tours import send_reminders  # here, not at the top: tours imports this module
+                        from .chores import run_chores  # here, not at the top: the chores import this module
 
-                        send_reminders(db)
+                        run_chores(db)
                     while deliver_pending(db) and not self._stop.is_set():
                         pass
             except Exception:  # keep the worker alive whatever happens

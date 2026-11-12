@@ -105,6 +105,10 @@ export async function SiteFooter() {
         </div>
         <div className="mono flex flex-wrap justify-between gap-2 border-t border-white/10 py-6 text-[0.75rem] text-white/40">
           <span>© {new Date().getFullYear()} Respite for the Weary</span>
+          <span className="flex gap-5">
+            <Link href="/privacy" className="hover:text-white">Privacy</Link>
+            <Link href="/terms" className="hover:text-white">Terms</Link>
+          </span>
           {house.footerTagline && <span>{house.footerTagline}</span>}
         </div>
       </div>

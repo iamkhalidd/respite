@@ -1,15 +1,18 @@
 """A resident's private pay page. The token in the URL is the only credential."""
 
 import stripe
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy import select, update
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
 from ..db import get_db, now
-from ..models import Bed, Charge, Resident
+from ..models import Bed, Charge, RepairRequest, Resident
 from ..serialize import row, rows
+from ..services import notify
 from ..services.email import site_url
 from ..services.payments import notify_owner, settle_session
 
@@ -41,7 +44,47 @@ def portal(token: str, db: Session = Depends(get_db)):
     bed = row(r.bed, room=row(r.bed.room)) if r.bed else None
     out = row(r, bed=bed, charges=rows(charges))
     out.pop("portalToken")
-    return out | {"stripeEnabled": get_settings().stripe_enabled}
+    repairs = db.scalars(select(RepairRequest).where(RepairRequest.residentId == r.id).order_by(RepairRequest.createdAt.desc()).limit(20)).all()
+    return out | {"stripeEnabled": get_settings().stripe_enabled, "repairs": rows(repairs)}
+
+
+@router.get("/{token}/statement")
+def statement(token: str, db: Session = Depends(get_db)):
+    from .records import statement as build  # here, not at the top: records is an admin module
+
+    return build(db, _resident(db, token))
+
+
+AREAS = ["Bedroom", "Bathroom", "Kitchen", "Laundry", "Heat or air", "Outside", "Other"]
+
+
+class RepairIn(BaseModel):
+    area: str = Field(max_length=40)
+    body: str = Field(min_length=3, max_length=2000)
+    urgent: bool = False
+
+
+@router.post("/{token}/repairs", status_code=201)
+def report_repair(token: str, body: RepairIn, db: Session = Depends(get_db)):
+    r = _resident(db, token)
+    if not r.active:
+        raise HTTPException(403, "This page is closed now that you've moved out. Call the house if you need anything.")
+    text = body.body.strip()
+    if len(text) < 3:
+        raise HTTPException(400, "Tell us what needs fixing.")
+    area = body.area if body.area in AREAS else "Other"
+    open_count = db.scalar(select(func.count()).select_from(RepairRequest).where(RepairRequest.residentId == r.id, RepairRequest.status != "DONE")) or 0
+    if open_count >= 10:
+        raise HTTPException(429, "You have 10 repairs waiting already. Call the house so we can sort them out together.")
+    x = RepairRequest(residentId=r.id, area=area, body=text, urgent=body.urgent)
+    db.add(x)
+    where = f" ({r.bed.label})" if r.bed else ""
+    notify.owner(
+        db, "repair.new", f"{'Urgent repair' if body.urgent else 'Repair'}: {area}, {r.name}{where}",
+        f'"{text}"' + (f"\n\nPhone: {r.phone}" if r.phone else ""), "/admin/repairs",
+    )
+    db.commit()
+    return row(x)
 
 
 @router.get("/{token}/due")

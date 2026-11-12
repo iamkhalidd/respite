@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Phone } from "lucide-react";
+import { Phone, Printer } from "lucide-react";
 import { admin, orNull } from "@/lib/api";
 import { siteUrl } from "@/lib/site";
-import type { Bed, Charge, Request, Resident, Room } from "@/lib/types";
+import type { Bed, Charge, Request, Resident, ResidentDocument, ResidentNote, Room } from "@/lib/types";
 import { longDate, money } from "@/lib/format";
 import { addCharge, moveOut, sendPayLink } from "../../../actions";
 import { Page, Card, CardHead, Notice, Label, Prop, isOverdue, btnPrimary, btnQuiet, input, link } from "../../ui";
@@ -11,6 +11,7 @@ import { SubmitButton } from "../../submit";
 import { ConfirmAction } from "../../confirm";
 import { ChargeList } from "../../payments/charge-table";
 import { PayLink, EditResident } from "./client";
+import { DepositCard, DocumentsCard, NotesCard } from "./records";
 
 export default async function ResidentDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ welcome?: string }> }) {
   const { id } = await params;
@@ -19,6 +20,11 @@ export default async function ResidentDetail({ params, searchParams }: { params:
     admin.get<Resident & { bed: (Bed & { room: Room }) | null; charges: Charge[]; request: Request | null }>(`/admin/residents/${encodeURIComponent(id)}`),
   );
   if (!r) notFound();
+  const [notes, docs] = await Promise.all([
+    admin.get<ResidentNote[]>(`/admin/residents/${r.id}/notes`),
+    admin.get<ResidentDocument[]>(`/admin/residents/${r.id}/documents`),
+  ]);
+  const depositPaid = r.charges.filter((c) => c.label === "Security deposit" && c.status === "PAID").reduce((s, c) => s + c.amountCents, 0);
   const due = r.charges.filter((c) => c.status === "DUE");
   const owed = due.reduce((s, c) => s + c.amountCents, 0);
   const late = due.some(isOverdue);
@@ -41,11 +47,16 @@ export default async function ResidentDetail({ params, searchParams }: { params:
         </>
       }
       actions={
-        r.phone ? (
-          <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} className={btnQuiet}>
-            <Phone size={15} /> Call {first}
-          </a>
-        ) : undefined
+        <>
+          <Link href={`/admin/residents/${r.id}/statement`} className={btnQuiet}>
+            <Printer size={15} /> Statement
+          </Link>
+          {r.phone && (
+            <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} className={btnQuiet}>
+              <Phone size={15} /> Call {first}
+            </a>
+          )}
+        </>
       }
     >
       {welcome && (
@@ -71,7 +82,7 @@ export default async function ResidentDetail({ params, searchParams }: { params:
           </div>
         </section>
 
-        <div className="grid min-w-0 gap-5 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+        <div className="grid min-w-0 gap-5 lg:col-start-1 lg:row-span-6 lg:row-start-1">
           <Card>
             <CardHead title="Charges" hint={due.length ? `${due.length} unpaid. Tap the dots to mark one paid in person.` : undefined} />
             <div className="mt-3 border-t border-line">
@@ -103,6 +114,8 @@ export default async function ResidentDetail({ params, searchParams }: { params:
               </form>
             </Card>
           )}
+
+          <NotesCard residentId={r.id} notes={notes} firstName={first} />
         </div>
 
         <Card className="lg:col-start-2">
@@ -130,6 +143,22 @@ export default async function ResidentDetail({ params, searchParams }: { params:
             )}
           </dl>
         </Card>
+
+        {!r.active && (
+          <div className="lg:col-start-2">
+            <DepositCard
+              residentId={r.id}
+              paidCents={depositPaid}
+              returnedCents={r.depositReturnedCents}
+              note={r.depositNote}
+              settledAt={r.depositSettledAt}
+            />
+          </div>
+        )}
+
+        <div className="lg:col-start-2">
+          <DocumentsCard residentId={r.id} docs={docs} />
+        </div>
 
         {r.active && (
           <Card className="p-5 sm:p-6 lg:col-start-2">

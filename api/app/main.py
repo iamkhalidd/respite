@@ -9,7 +9,7 @@ from sqlalchemy import func, inspect, select, text
 from .config import get_settings
 from .db import Base, SessionLocal, engine
 from .models import AdminUser
-from .routers import admin, auth, hooks, notifications, portal, public
+from .routers import admin, auth, hooks, notifications, portal, public, records
 from .security import hash_password
 from .services.notify import outbox
 
@@ -73,7 +73,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-for r in (auth.router, auth.users, public.router, portal.router, admin.router, notifications.router, hooks.router):
+for r in (auth.router, auth.users, public.router, records.feeds, portal.router, admin.router, records.router, notifications.router, hooks.router):
     app.include_router(r)
 
 

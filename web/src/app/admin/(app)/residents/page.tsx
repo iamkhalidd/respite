@@ -2,7 +2,8 @@ import Link from "next/link";
 import { admin } from "@/lib/api";
 import type { Bed, Charge, Resident, Room } from "@/lib/types";
 import { money, shortDate } from "@/lib/format";
-import { Page, Card, Empty, Notice, isOverdue, btnPrimary } from "../ui";
+import { Wrench } from "lucide-react";
+import { Page, Card, Empty, Notice, isOverdue, btnPrimary, btnQuiet } from "../ui";
 
 export default async function Residents({ searchParams }: { searchParams: Promise<{ left?: string }> }) {
   const { left } = await searchParams;
@@ -54,7 +55,15 @@ export default async function Residents({ searchParams }: { searchParams: Promis
   );
 
   return (
-    <Page title="Residents" eyebrow={`${current.length} living here${past.length ? ` · ${past.length} past` : ""}`}>
+    <Page
+      title="Residents"
+      eyebrow={`${current.length} living here${past.length ? ` · ${past.length} past` : ""}`}
+      actions={
+        <Link href="/admin/repairs" className={btnQuiet}>
+          <Wrench size={15} /> Repairs
+        </Link>
+      }
+    >
       {left && <Notice>Moved out. Their bed is open and showing on the site.</Notice>}
       <Card>
         {current.length ? (

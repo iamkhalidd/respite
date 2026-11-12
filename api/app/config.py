@@ -35,6 +35,14 @@ class Settings(BaseSettings):
 
     cron_secret: str = ""
 
+    # Text messages (optional, Twilio charges per message). Off unless all three are set.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from: str = ""  # the Twilio number texts come from, e.g. +15405550100
+
+    # Overdue rent: one reminder this many days after the due date.
+    overdue_after_days: int = 3
+
     # The outbox worker sends queued emails in the background. Turn it off on hosts that can't
     # run a background thread, and call /cron/notifications every minute instead.
     notify_worker: bool = True
@@ -57,6 +65,10 @@ class Settings(BaseSettings):
         if url.startswith("postgresql://"):
             url = "postgresql+psycopg://" + url[len("postgresql://") :]
         return url
+
+    @property
+    def sms_enabled(self) -> bool:
+        return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from)
 
     @property
     def stripe_enabled(self) -> bool:

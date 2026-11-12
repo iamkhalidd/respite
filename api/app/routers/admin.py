@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
 from ..db import get_db, now
-from ..models import Bed, Charge, Request, Resident, Room, Tour, WaitlistEntry
+from ..models import Bed, Charge, RepairRequest, Request, Resident, Room, Tour, WaitlistEntry
 from ..security import current_admin
 from ..serialize import row, rows
 from ..services.availability import get_beds, get_rooms_with_beds, sorted_beds
@@ -68,6 +68,7 @@ def summary(db: Session = Depends(get_db)):
         "beds": [b["state"] for b in get_beds(db)],
         "unreadNotifications": unread_count(db),
         "failedEmails": failed_count(db),
+        "openRepairs": db.scalar(select(func.count()).select_from(RepairRequest).where(RepairRequest.status != "DONE")),
     }
 
 
@@ -627,10 +628,17 @@ def _tour_row(t: Tour) -> dict:
 
 
 @router.get("/tours")
-def list_tours(when: Literal["upcoming", "past"] = Query("upcoming"), db: Session = Depends(get_db)):
+def list_tours(
+    when: Literal["upcoming", "past", "month"] = Query("upcoming"),
+    month: str = Query("", pattern=r"^(\d{4}-(0[1-9]|1[0-2]))?$"),
+    db: Session = Depends(get_db),
+):
     today = tours.local_now().date().isoformat()
     q = select(Tour)
-    if when == "upcoming":
+    if when == "month":
+        m = month or today[:7]
+        q = q.where(Tour.date >= f"{m}-01", Tour.date <= f"{m}-31", Tour.status != "CANCELLED").order_by(Tour.date, Tour.time)
+    elif when == "upcoming":
         q = q.where(Tour.date >= today, Tour.status == "BOOKED").order_by(Tour.date, Tour.time)
     else:
         q = q.where((Tour.date < today) | (Tour.status != "BOOKED")).order_by(Tour.date.desc(), Tour.time.desc()).limit(100)

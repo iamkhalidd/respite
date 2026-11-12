@@ -5,13 +5,14 @@ import { api, ApiError } from "@/lib/api";
 export type Program = "VETERAN" | "RECOVERY" | "SENIOR";
 export type TourInput = { date: string; time: string; name: string; phone: string; email?: string; program?: Program; note?: string };
 export type WaitlistInput = { name: string; email: string; phone?: string; program?: Program; room?: string; note?: string };
+export type Booked = { firstName: string; when: string; token: string; startsAt: string | Date; endsAt: string | Date };
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string; taken?: boolean };
 
 const SERVER_ERROR = "Something went wrong on our side. Please call and we'll take it by phone.";
 
-export async function bookTour(input: TourInput): Promise<Result<{ firstName: string; when: string; token: string }>> {
+export async function bookTour(input: TourInput): Promise<Result<Booked>> {
   try {
-    const r = await api.post<{ firstName: string; when: string; token: string }>("/public/tours", input);
+    const r = await api.post<Booked>("/public/tours", input);
     return { ok: true, ...r };
   } catch (e) {
     if (e instanceof ApiError && e.status < 500) return { ok: false, error: e.message, taken: e.status === 409 };

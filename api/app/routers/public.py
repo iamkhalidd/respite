@@ -3,7 +3,9 @@
 import re
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -12,10 +14,11 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Request, Room, Tour, WaitlistEntry
 from ..services.availability import get_beds, get_rooms_with_beds
-from ..services import notify, tours
+from ..serialize import iso
+from ..services import ics, notify, tours
 from ..services.email import site_url
 from ..services.fmt import first_name
-from ..services.content import get_all, house_phone
+from ..services.content import get_all, get_section, house_phone
 from ..services.labels import FOR_WHOM, MOVE_IN, PAYMENT, PROGRAMS
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -132,7 +135,12 @@ class TourIn(BaseModel):
 
 
 def _tour_view(t: Tour) -> dict:
-    return {"date": t.date, "time": t.time, "when": tours.when(t.date, t.time), "name": t.name, "status": t.status, "firstName": first_name(t.name)}
+    start = tours.starts_at(t.date, t.time)
+    return {
+        "date": t.date, "time": t.time, "when": tours.when(t.date, t.time), "name": t.name, "status": t.status, "firstName": first_name(t.name),
+        # UTC, for "add to calendar" links
+        "startsAt": iso(start.astimezone(UTC)), "endsAt": iso((start + ics.LENGTH).astimezone(UTC)),
+    }
 
 
 @router.post("/tours", status_code=201)
@@ -180,6 +188,21 @@ def get_tour(token: str, db: Session = Depends(get_db)):
     t = _tour(db, token)
     past = tours.starts_at(t.date, t.time) < tours.local_now()
     return {**_tour_view(t), "past": past, "phone": house_phone(db)}
+
+
+@router.get("/tours/{token}/calendar.ics")
+def tour_calendar(token: str, db: Session = Depends(get_db)):
+    t = _tour(db, token)
+    house = get_section(db, "house")
+    body = ics.calendar(
+        [ics.event(
+            t, summary="Tour at Respite for the Weary",
+            description=f"Questions? Call {house_phone(db)}.\nNeed to cancel? {site_url()}/tour/{t.token}",
+            location=house.get("address", ""),
+        )],
+        "Respite for the Weary",
+    )
+    return Response(content=body, media_type="text/calendar; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="respite-tour.ics"'})
 
 
 @router.post("/tours/{token}/cancel")

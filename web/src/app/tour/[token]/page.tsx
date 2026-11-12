@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 import { api, orNull } from "@/lib/api";
 import { getHouse } from "@/lib/content";
 import { QuietPage as Shell, quietGhost as ghost, quietSolid as solid } from "@/components/quiet-page";
+import { tourCalendar } from "@/lib/calendar";
 import { cancelTour } from "../actions";
 
 export const metadata: Metadata = { title: "Your tour", robots: { index: false } };
 export const dynamic = "force-dynamic";
 
-type Tour = { when: string; firstName: string; status: "BOOKED" | "DONE" | "NO_SHOW" | "CANCELLED"; past: boolean; phone: string };
+type Tour = { when: string; firstName: string; status: "BOOKED" | "DONE" | "NO_SHOW" | "CANCELLED"; past: boolean; phone: string; startsAt: string | Date; endsAt: string | Date };
 
 /** The link in the visitor's email: shows the tour and lets them cancel it. */
 export default async function YourTour({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ cancel?: string }> }) {
@@ -17,6 +18,7 @@ export default async function YourTour({ params, searchParams }: { params: Promi
   const [tour, house] = await Promise.all([orNull(api.get<Tour>(`/public/tours/${encodeURIComponent(token)}`)), getHouse()]);
   if (!tour) notFound();
   const live = tour.status === "BOOKED" && !tour.past;
+  const cal = tourCalendar({ token, startsAt: tour.startsAt, endsAt: tour.endsAt, address: house.address, phone: house.phone });
 
   return (
     <Shell>
@@ -31,6 +33,19 @@ export default async function YourTour({ params, searchParams }: { params: Promi
             ? `We'll see you then, ${tour.firstName}. The house is at ${house.address}.`
             : `Thanks for coming by, ${tour.firstName}.`}
       </p>
+
+      {live && !cancel && (
+        <p className="mt-6 text-[0.9rem] text-white/55">
+          Add it to{" "}
+          <a href={cal.google} target="_blank" rel="noopener noreferrer" className="font-medium text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">
+            Google Calendar
+          </a>{" "}
+          or{" "}
+          <a href={cal.ics} className="font-medium text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">
+            Apple and Outlook
+          </a>
+        </p>
+      )}
 
       <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
         {live && !cancel && (

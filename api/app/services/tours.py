@@ -138,7 +138,8 @@ def email_booked(db: Session, tour: Tour) -> None:
     notify.email(
         db, tour.email, f"Your tour is booked for {when(tour.date, tour.time)}",
         f"Hi {first_name(tour.name)},\n\nThanks for booking a visit. We look forward to showing you around.\n\n"
-        f"{_details(db, tour)}\n\nNeed to change it? Cancel here and book another time:\n{site_url()}/tour/{tour.token}",
+        f"{_details(db, tour)}\n\nAdd it to your calendar:\n{site_url()}/tour/{tour.token}/calendar\n\n"
+        f"Need to change it? Cancel here and book another time:\n{site_url()}/tour/{tour.token}",
         "tour.confirmed",
     )
 
@@ -181,6 +182,11 @@ def send_reminders(db: Session) -> int:
             db, t.email, f"See you {'today' if start.date() == current.date() else 'tomorrow'} at {at.split(' at ')[1]}",
             f"Hi {first_name(t.name)},\n\nA reminder about your visit.\n\n{_details(db, t)}\n\n"
             f"Can't make it? Cancel here so someone else can have the time:\n{site_url()}/tour/{t.token}",
+            "tour.reminder",
+        )
+        notify.sms(
+            db, t.phone,
+            f"Respite for the Weary: see you {'today' if start.date() == current.date() else 'tomorrow'}, {at}. Can't make it? {site_url()}/tour/{t.token}",
             "tour.reminder",
         )
         t.reminderSentAt = now()

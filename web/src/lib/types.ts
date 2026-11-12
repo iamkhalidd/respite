@@ -17,6 +17,7 @@ export type Request = {
 export type Resident = {
   id: string; name: string; email: string | null; phone: string | null; bedId: string | null; requestId: string | null;
   moveInDate: Date; moveOutDate: Date | null; rentCents: number; autopay: boolean; portalToken: string; active: boolean; createdAt: Date;
+  depositReturnedCents: number | null; depositNote: string | null; depositSettledAt: Date | null;
 };
 export type Charge = {
   id: string; residentId: string; label: string; period: string | null; amountCents: number; dueDate: Date;
@@ -71,4 +72,23 @@ export type WaitlistStatus = "WAITING" | "NOTIFIED" | "REMOVED";
 export type WaitlistEntry = {
   id: string; createdAt: Date; name: string; email: string; phone: string | null; program: string | null;
   roomId: string | null; roomName: string | null; note: string; status: WaitlistStatus; notifiedAt: Date | null;
+};
+
+/* A resident's file: notes, documents, repairs, statement. */
+export type NoteKind = "NOTE" | "CHECKIN" | "INCIDENT";
+export type ResidentNote = { id: string; residentId: string; createdAt: Date; kind: NoteKind; body: string; author: string };
+export type ResidentDocument = { id: string; residentId: string; createdAt: Date; name: string; contentType: string; size: number; uploadedBy: string };
+export type RepairStatus = "OPEN" | "DOING" | "DONE";
+export type Repair = {
+  id: string; residentId: string; createdAt: Date; area: string; body: string; urgent: boolean; status: RepairStatus;
+  ownerNote: string; doneAt: Date | null;
+};
+export type RepairWithResident = Repair & { resident: { id: string; name: string; phone: string | null; bed: string | null } | null };
+export type Statement = {
+  resident: { name: string; moveInDate: Date; moveOutDate: Date | null; rentCents: number; active: boolean; bed: string | null; room: string | null };
+  house: { name: string; address: string; phone: string };
+  charges: { id: string; label: string; period: string | null; amountCents: number; dueDate: Date; status: string; paidAt: Date | null; method: string | null }[];
+  totals: { billedCents: number; paidCents: number; owedCents: number };
+  deposit: { paidCents: number; returnedCents: number | null; note: string | null; settledAt: Date | null };
+  generatedAt: Date;
 };

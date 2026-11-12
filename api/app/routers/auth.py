@@ -1,3 +1,6 @@
+import hashlib
+import secrets
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,6 +12,9 @@ from ..db import get_db, now
 from ..models import AdminUser
 from ..security import burn_time, current_admin, hash_password, login_limiter, make_token, owner_only, verify_password
 from ..serialize import iso, row
+from ..services import notify
+from ..services.email import site_url
+from ..services.fmt import first_name
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 # anyone signed in can see the team; only owners can add or remove people
@@ -39,7 +45,18 @@ class RoleIn(BaseModel):
 def user_out(u: AdminUser) -> dict:
     out = row(u)
     out.pop("tokenVersion", None)
+    out.pop("resetTokenHash", None)
+    out.pop("resetExpiresAt", None)
     return out
+
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _session(user: AdminUser) -> dict:
+    token, exp = make_token(user)
+    return {"accessToken": token, "tokenType": "bearer", "expiresAt": iso(exp), "user": user_out(user)}
 
 
 @router.post("/login")
@@ -75,8 +92,73 @@ def change_password(body: PasswordIn, user: AdminUser = Depends(current_admin), 
     user.passwordHash = hash_password(body.newPassword)
     user.tokenVersion += 1  # logs out every other device
     db.commit()
-    token, exp = make_token(user)
-    return {"accessToken": token, "tokenType": "bearer", "expiresAt": iso(exp), "user": user_out(user)}
+    return _session(user)
+
+
+class ForgotIn(BaseModel):
+    email: str = Field(min_length=1, max_length=200)
+
+
+RESET_FOR = timedelta(hours=1)
+
+
+@router.post("/forgot")
+def forgot_password(body: ForgotIn, request: Request, db: Session = Depends(get_db)):
+    """Emails a reset link. Always says the same thing, so it can't be used to find out who has an account."""
+    email = body.email.strip().lower()
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
+    keys = [f"forgot:{email}", f"forgot-ip:{ip}"]
+    if any(login_limiter.blocked(k) for k in keys):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many tries. Wait 15 minutes and try again.")
+    for k in keys:
+        login_limiter.fail(k)  # every request counts, found or not
+    user = db.scalar(select(AdminUser).where(func.lower(AdminUser.email) == email))
+    if user:
+        token = secrets.token_urlsafe(32)
+        user.resetTokenHash, user.resetExpiresAt = _hash(token), now() + RESET_FOR
+        notify.email(
+            db, user.email, "Reset your Respite for the Weary password",
+            f"Hi {first_name(user.name) if user.name else 'there'},\n\nSomeone asked to reset the password for this dashboard account. "
+            f"If it was you, choose a new password here. The link works once, for the next hour:\n{site_url()}/admin/reset/{token}\n\n"
+            "If it wasn't you, ignore this email. Your password stays the same.",
+            "auth.reset",
+        )
+        db.commit()
+    return {"ok": True}
+
+
+def _reset_user(db: Session, token: str) -> AdminUser | None:
+    if not token or len(token) > 200:
+        return None
+    user = db.scalar(select(AdminUser).where(AdminUser.resetTokenHash == _hash(token)))
+    if not user or not user.resetExpiresAt or user.resetExpiresAt < now():
+        return None
+    return user
+
+
+@router.get("/reset/{token}")
+def check_reset(token: str, db: Session = Depends(get_db)):
+    user = _reset_user(db, token)
+    return {"valid": bool(user), "email": user.email if user else None}
+
+
+class ResetIn(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=10, max_length=200)
+
+
+@router.post("/reset")
+def reset_password(body: ResetIn, db: Session = Depends(get_db)):
+    user = _reset_user(db, body.token)
+    if not user:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link has expired or was already used. Ask for a new one.")
+    user.passwordHash = hash_password(body.password)
+    user.tokenVersion += 1  # signs out every device that had the old password
+    user.resetTokenHash = user.resetExpiresAt = None
+    user.lastLoginAt = now()
+    login_limiter.clear(f"email:{user.email.lower()}")
+    db.commit()
+    return _session(user)
 
 
 @users.get("")

@@ -17,7 +17,7 @@ from ..services import notify
 router = APIRouter(prefix="/admin", tags=["notifications"], dependencies=[Depends(current_admin)])
 
 INBOX = Notification.channel == "INBOX"
-EMAIL = Notification.channel == "EMAIL"
+EMAIL = Notification.channel.in_(("EMAIL", "SMS"))  # everything that goes out: emails and texts
 
 
 def unread_count(db: Session) -> int:

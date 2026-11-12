@@ -4,12 +4,13 @@ import { admin } from "@/lib/api";
 import type { Tour, TourSettings, WaitlistEntry } from "@/lib/types";
 import { clock, longDay } from "@/lib/when";
 import { PROGRAMS, type Program } from "@/lib/labels";
-import { setTourStatus } from "../../actions";
+import { resetTourFeed, setTourStatus } from "../../actions";
 import { Page, Card, Empty, Notice, btnQuiet } from "../ui";
 import { SubmitButton } from "../submit";
 import { ConfirmAction } from "../confirm";
 import { InboxTabs } from "../inbox-tabs";
-import { CallerForm, ScheduleEditor } from "./client";
+import { CallerForm, FeedCard, ScheduleEditor } from "./client";
+import { MonthView, pickMonth } from "./month";
 
 export const dynamic = "force-dynamic";
 
@@ -39,14 +40,19 @@ function Who({ t }: { t: Tour }) {
   );
 }
 
-export default async function Tours({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const { view } = await searchParams;
+export default async function Tours({ searchParams }: { searchParams: Promise<{ view?: string; m?: string }> }) {
+  const { view, m } = await searchParams;
   const past = view === "past";
-  const [settings, upcoming, list, waiting] = await Promise.all([
+  const calendar = view === "calendar";
+  const month = pickMonth(m);
+  const tab = past ? "past" : calendar ? "calendar" : "upcoming";
+  const [settings, upcoming, list, waiting, monthTours, feed] = await Promise.all([
     admin.get<TourSettings>("/admin/tours/settings"),
     admin.get<Tour[]>("/admin/tours?when=upcoming"),
     past ? admin.get<Tour[]>("/admin/tours?when=past") : Promise.resolve(null),
     admin.get<WaitlistEntry[]>("/admin/waitlist"),
+    calendar ? admin.get<Tour[]>(`/admin/tours?when=month&month=${month}`) : Promise.resolve([] as Tour[]),
+    admin.get<{ url: string }>("/admin/tours/feed"),
   ]);
   const days = [...new Set(upcoming.map((t) => t.date))];
 
@@ -59,12 +65,13 @@ export default async function Tours({ searchParams }: { searchParams: Promise<{ 
         <div className="flex rounded-full bg-ink/[.06] p-1 text-[0.88rem]">
           {[
             ["upcoming", "Coming up", "/admin/tours"],
+            ["calendar", "Month", "/admin/tours?view=calendar"],
             ["past", "Past", "/admin/tours?view=past"],
           ].map(([v, l, href]) => (
             <Link
               key={v}
               href={href}
-              className={`grid h-9 place-items-center rounded-full px-4 transition-colors ${(past ? "past" : "upcoming") === v ? "bg-paper font-medium shadow-[0_1px_2px_rgb(15_17_16/.15)]" : "text-moss hover:text-ink"}`}
+              className={`grid h-9 place-items-center rounded-full px-4 transition-colors ${tab === v ? "bg-paper font-medium shadow-[0_1px_2px_rgb(15_17_16/.15)]" : "text-moss hover:text-ink"}`}
             >
               {l}
             </Link>
@@ -79,7 +86,9 @@ export default async function Tours({ searchParams }: { searchParams: Promise<{ 
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0 space-y-6">
-          {past ? (
+          {calendar ? (
+            <MonthView month={month} tours={monthTours} />
+          ) : past ? (
             <Card>
               {list && list.length ? (
                 <ul className="divide-y divide-line">
@@ -162,6 +171,7 @@ export default async function Tours({ searchParams }: { searchParams: Promise<{ 
 
         <div className="space-y-6">
           <CallerForm />
+          <FeedCard url={feed.url} reset={resetTourFeed} />
           <ScheduleEditor initial={settings} />
         </div>
       </div>

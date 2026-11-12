@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut, Bell, Globe, UserCog } from "lucide-react";
+import { Home, Inbox, BedDouble, Users, CreditCard, ArrowUpRight, LogOut, Bell, Globe, UserCog, Wrench } from "lucide-react";
 import type { BedState } from "@/lib/availability";
 import { logout } from "../actions";
 
@@ -11,6 +11,7 @@ const ITEMS = [
   { href: "/admin/rooms", label: "Rooms & beds", short: "Rooms", icon: BedDouble },
   { href: "/admin/residents", label: "Residents", short: "Residents", icon: Users },
   { href: "/admin/payments", label: "Payments", short: "Payments", icon: CreditCard, badge: "overdue" },
+  { href: "/admin/repairs", label: "Repairs", short: "Repairs", icon: Wrench, badge: "repairs", rail: true },
   { href: "/admin/notifications", label: "Notifications", short: "Alerts", icon: Bell, badge: "unread", rail: true },
   { href: "/admin/site", label: "Website", short: "Website", icon: Globe, rail: true },
   { href: "/admin/team", label: "Team", short: "Team", icon: UserCog, rail: true },
@@ -45,7 +46,7 @@ function Windows({ beds }: { beds: BedState[] }) {
   );
 }
 
-type Props = { newRequests: number; overdue: number; beds: BedState[]; unread: number; failedEmails: number };
+type Props = { newRequests: number; overdue: number; beds: BedState[]; unread: number; failedEmails: number; repairs?: number };
 
 /** The bell: amber when something new came in, ember when an email couldn't be sent. */
 function BellLink({ unread, failedEmails, className }: { unread: number; failedEmails: number; className: string }) {
@@ -63,18 +64,20 @@ function BellLink({ unread, failedEmails, className }: { unread: number; failedE
   );
 }
 
-export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Props) {
+export function Sidebar({ newRequests, overdue, beds, unread, failedEmails, repairs = 0 }: Props) {
   const path = usePathname();
-  const count = { requests: newRequests, overdue, unread: unread + failedEmails } as const;
+  const count = { requests: newRequests, overdue, unread: unread + failedEmails, repairs } as const;
   // tours and the waitlist live under Requests, so it stays lit there too
   const isActive = (href: string, exact?: boolean) =>
-    exact ? path === href : path.startsWith(href) || (href === "/admin/requests" && /^\/admin\/(tours|waitlist)/.test(path));
+    exact
+      ? path === href
+      : path.startsWith(href) || (href === "/admin/requests" && /^\/admin\/(tours|waitlist)/.test(path));
   const open = beds.filter((b) => b === "open").length;
 
   return (
     <>
       {/* Phone: slim top bar */}
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-night px-4 text-white md:hidden">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-night px-4 text-white md:hidden print:hidden">
         <Link href="/admin" className="flex items-center gap-2" aria-label="Dashboard home">
           <Mark />
           <span className="text-[1.02rem] font-semibold tracking-[-0.04em]">Respite</span>
@@ -95,7 +98,7 @@ export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Pr
       </header>
 
       {/* Desktop: the night rail */}
-      <aside className="sticky top-0 hidden h-dvh flex-col bg-night px-3 py-5 text-white md:flex">
+      <aside className="sticky top-0 hidden h-dvh flex-col bg-night px-3 py-5 text-white md:flex print:hidden">
         <Link href="/admin" className="flex items-center gap-2.5 px-3">
           <Mark />
           <span className="text-[1.06rem] font-semibold leading-none tracking-[-0.045em]">
@@ -155,10 +158,11 @@ export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Pr
       </aside>
 
       {/* Phone: tab bar within thumb reach */}
-      <nav aria-label="Dashboard" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+      <nav aria-label="Dashboard" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden print:hidden">
         <ul className="grid grid-cols-5">
           {TABS.map(({ href, short, icon: Icon, ...it }) => {
-            const active = isActive(href, "exact" in it && it.exact);
+            // repairs has no tab of its own on phones; it lives under Residents
+            const active = isActive(href, "exact" in it && it.exact) || (href === "/admin/residents" && path.startsWith("/admin/repairs"));
             const n = "badge" in it ? count[it.badge] : 0;
             return (
               <li key={href}>

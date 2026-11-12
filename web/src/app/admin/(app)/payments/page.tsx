@@ -3,7 +3,8 @@ import { admin } from "@/lib/api";
 import { money } from "@/lib/format";
 import type { Charge } from "@/lib/types";
 import { billMonth } from "../../actions";
-import { Page, Card, CardHead, Notice, Label, btnPrimary, input } from "../ui";
+import { Download } from "lucide-react";
+import { Page, Card, CardHead, Notice, Label, btnPrimary, btnQuiet, input, select } from "../ui";
 import { SubmitButton } from "../submit";
 import { ChargeList } from "./charge-table";
 
@@ -93,6 +94,33 @@ export default async function Payments({ searchParams }: { searchParams: Promise
               <input type="month" name="month" defaultValue={nextValue} required className={`${input} mono`} />
             </label>
             <SubmitButton className={`${btnPrimary} w-full disabled:opacity-60`}>Bill rent</SubmitButton>
+          </form>
+        </Card>
+
+        <Card className="xl:col-start-2">
+          <CardHead title="Download a spreadsheet" hint="For your accountant or your own books. Opens in Excel, Numbers or Google Sheets." />
+          {/* a plain GET form: the browser downloads the file straight from /admin/export */}
+          <form action="/admin/export" method="get" className="grid gap-3 p-5 pt-4 sm:p-6 sm:pt-4">
+            <label>
+              <Label>What</Label>
+              <select name="kind" defaultValue="payments" className={select}>
+                <option value="payments">Payments received</option>
+                <option value="charges">Everything billed</option>
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label>
+                <Label>From</Label>
+                <input type="date" name="from" defaultValue={`${new Date().getFullYear()}-01-01`} className={input} />
+              </label>
+              <label>
+                <Label>To</Label>
+                <input type="date" name="to" className={input} />
+              </label>
+            </div>
+            <button className={`${btnQuiet} w-full`}>
+              <Download size={15} /> Download .csv
+            </button>
           </form>
         </Card>
       </div>

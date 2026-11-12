@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check, Phone } from "lucide-react";
+import { Check, FileText, Phone } from "lucide-react";
 import { api, orNull } from "@/lib/api";
-import type { Charge, Resident, Bed, Room } from "@/lib/types";
+import type { Charge, Resident, Bed, Room, Repair } from "@/lib/types";
 import { longDate, money, shortDate } from "@/lib/format";
 import { getHouse } from "@/lib/content";
 import { Logo } from "@/components/site-chrome";
 import { startCheckout } from "./actions";
 import { PayButton } from "./pay-button";
+import { Repairs } from "./repairs";
 
 const METHOD: Record<string, string> = { CARD: "Card", ACH: "Bank", STRIPE: "Online", DEMO: "Online (test)", CASH: "Cash", CHECK: "Check", MONEY_ORDER: "Money order", VOUCHER: "Voucher" };
 
@@ -26,7 +28,7 @@ export default async function Portal({ params, searchParams }: { params: Promise
     } catch {}
   }
 
-  type PortalView = Omit<Resident, "portalToken"> & { bed: (Bed & { room: Room }) | null; charges: Charge[]; stripeEnabled: boolean };
+  type PortalView = Omit<Resident, "portalToken"> & { bed: (Bed & { room: Room }) | null; charges: Charge[]; stripeEnabled: boolean; repairs?: Repair[] };
   const r = await orNull(api.get<PortalView>(path));
   if (!r) notFound();
   const due = r.charges.filter((c) => c.status === "DUE").sort((a, b) => +a.dueDate - +b.dueDate);
@@ -117,6 +119,20 @@ export default async function Portal({ params, searchParams }: { params: Promise
               ))}
             </ul>
           </section>
+        )}
+        {r.active && <Repairs token={token} repairs={r.repairs ?? []} phone={{ label: house.phone, href: house.phoneHref }} />}
+
+        {r.charges.length > 0 && (
+          <Link
+            href={`/portal/${token}/statement`}
+            className="press mt-10 flex items-center gap-3 rounded-2xl bg-paper px-5 py-4 ring-1 ring-line transition-colors hover:bg-ink/[.025]"
+          >
+            <FileText size={18} className="shrink-0 text-moss" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[0.95rem] font-medium">Rent statement</span>
+              <span className="block text-[0.82rem] text-moss">Everything billed and paid, ready to print or save as a PDF.</span>
+            </span>
+          </Link>
         )}
       </main>
       <style>{`@keyframes portal-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}`}</style>

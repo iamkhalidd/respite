@@ -14,7 +14,7 @@ from ..services.billing import bill_rent
 from ..services import notify
 from ..services.fmt import money, next_month_start, period
 from ..services.payments import settle_session
-from ..services.tours import send_reminders
+from ..services.chores import run_chores
 
 router = APIRouter(tags=["hooks"])
 
@@ -49,10 +49,10 @@ def _check_cron(authorization: str) -> None:
 
 @router.api_route("/cron/notifications", methods=["GET", "POST"])
 def cron_notifications(authorization: str = Header(""), db: Session = Depends(get_db)):
-    """Sends tour reminders and any queued emails that are due. For hosts that run with NOTIFY_WORKER=false."""
+    """Sends tour and overdue rent reminders, then any queued emails and texts. For hosts that run with NOTIFY_WORKER=false."""
     _check_cron(authorization)
-    reminded = send_reminders(db)
-    return {"reminded": reminded, "sent": notify.deliver_all(db)}
+    done = run_chores(db)
+    return {**done, "sent": notify.deliver_all(db)}
 
 
 @router.post("/stripe/webhook")

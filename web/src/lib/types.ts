@@ -57,3 +57,18 @@ export type HomeCopy = {
 export type Chapter = { key: "VETERAN" | "RECOVERY" | "SENIOR"; word: string; line: string; body: string; good: string[]; referred: string; photo: SitePhoto };
 export type FaqItem = { q: string; a: string };
 export type SiteContent = { house: House; home: HomeCopy; who: { chapters: Chapter[] }; faq: { items: FaqItem[] } };
+
+/* Tours and the waitlist. Tour dates and times are the house's local calendar values, kept as strings. */
+export type TourStatus = "BOOKED" | "DONE" | "NO_SHOW" | "CANCELLED";
+export type Tour = {
+  id: string; createdAt: Date; date: string; time: string; name: string; phone: string; email: string | null;
+  program: string | null; note: string; status: TourStatus; cancelledBy: "VISITOR" | "HOUSE" | null;
+  bookedBy: "VISITOR" | "HOUSE"; reminderSentAt: Date | null; when: string; startsAt: string;
+};
+export type TourSlot = { day: number; time: string };
+export type TourSettings = { enabled: boolean; slots: TourSlot[]; closedDays: string[]; daysAhead: number; minNoticeHours: number };
+export type WaitlistStatus = "WAITING" | "NOTIFIED" | "REMOVED";
+export type WaitlistEntry = {
+  id: string; createdAt: Date; name: string; email: string; phone: string | null; program: string | null;
+  roomId: string | null; roomName: string | null; note: string; status: WaitlistStatus; notifiedAt: Date | null;
+};

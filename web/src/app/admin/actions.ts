@@ -88,11 +88,10 @@ export async function saveRoom(id: string, _: FormState, form: FormData): Promis
   return state;
 }
 
-/** Adds a room (hidden until the owner shows it) and opens it so photos and words can be filled in. */
-export async function createRoom(_: FormState, form: FormData): Promise<FormState> {
-  let id = "";
+/** Adds a room (hidden until the owner shows it). The form then sends its photos one at a time and opens the room. */
+export async function createRoom(form: FormData): Promise<{ id?: string; error?: string }> {
   const kind = str(form, "kind");
-  const state = await attempt(async () => {
+  try {
     const room = await admin.post<{ id: string }>("/admin/rooms", {
       name: str(form, "name").trim(),
       kind,
@@ -102,11 +101,12 @@ export async function createRoom(_: FormState, form: FormData): Promise<FormStat
       depositCents: cents(form.get("deposit")) || 0,
       beds: kind === "PRIVATE" ? 1 : Number(str(form, "beds")) || 1,
     });
-    id = room.id;
-  });
-  if (!id) return state;
-  refresh();
-  redirect(`/admin/rooms/${id}?new=1`);
+    refresh();
+    return { id: room.id };
+  } catch (e) {
+    if (e instanceof ApiError && e.status < 500) return { error: e.message };
+    throw e;
+  }
 }
 
 export async function deleteRoom(id: string) {
@@ -150,7 +150,8 @@ export async function setBedOpening(bedId: string, form: FormData) {
   refresh();
 }
 
-export async function uploadPhoto(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+/** One photo per call: the browser shrinks each first, so no request comes near the host's size limit. */
+export async function uploadPhoto(roomId: string, form: FormData): Promise<FormState> {
   const file = form.get("photo") as File | null;
   if (!file || file.size === 0) return { error: "Choose a photo first." };
   const body = new FormData();
@@ -161,6 +162,11 @@ export async function uploadPhoto(roomId: string, _: FormState, form: FormData):
   });
   refresh();
   return state;
+}
+
+export async function coverPhoto(roomId: string, src: string) {
+  await admin.post(`/admin/rooms/${roomId}/photos/cover`, { src });
+  refresh();
 }
 
 export async function removePhoto(roomId: string, src: string) {
@@ -320,4 +326,38 @@ export async function changePassword(_: FormState, form: FormData): Promise<Form
     await setSession(r.accessToken, r.expiresAt);
     return { ok: "Password changed. Other devices are signed out." };
   });
+}
+
+/* ───── Tours ───── */
+export async function saveTourSettings(settings: unknown): Promise<FormState> {
+  return attempt(async () => {
+    await admin.put("/admin/tours/settings", settings);
+    refresh();
+    return { ok: "Saved" };
+  });
+}
+export async function setTourStatus(id: string, status: "BOOKED" | "DONE" | "NO_SHOW" | "CANCELLED") {
+  await admin.patch(`/admin/tours/${id}`, { status });
+  refresh();
+}
+export async function bookTourForCaller(_: FormState, form: FormData): Promise<FormState> {
+  return attempt(async () => {
+    const email = str(form, "email").trim();
+    await admin.post("/admin/tours", {
+      date: str(form, "date"),
+      time: str(form, "time"),
+      name: str(form, "name").trim(),
+      phone: str(form, "phone").trim(),
+      email: email || null,
+      note: str(form, "note").trim(),
+    });
+    refresh();
+    return { ok: email ? "Booked. We emailed them the details." : "Booked." };
+  });
+}
+
+/* ───── Waitlist ───── */
+export async function setWaitlistStatus(id: string, status: "WAITING" | "NOTIFIED" | "REMOVED") {
+  await admin.patch(`/admin/waitlist/${id}`, { status });
+  refresh();
 }

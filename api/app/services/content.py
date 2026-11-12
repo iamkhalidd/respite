@@ -181,7 +181,7 @@ DEFAULTS: dict[str, dict] = {
             {"q": "What does rent include?", "a": "A furnished room, utilities, Wi‑Fi, laundry and use of the kitchen and living areas, plus rides and help connecting to services."},
             {"q": "Can rent be paid with VA benefits or SSI?", "a": "Yes. Many residents pay with VA benefits, SSI or SSDI. You can pay online by card or bank transfer, or by check."},
             {"q": "How quickly can someone move in?", "a": "If a bed is open, often within a week of the tour. Beds marked “opening soon” can be reserved ahead of time."},
-            {"q": "Can we visit first?", "a": "Please do. Request a room or call us and we'll set up a tour that works for you."},
+            {"q": "Can we visit first?", "a": "Please do. Book a time on the tour page, or call us and we'll find one that works for you."},
         ]
     },
 }

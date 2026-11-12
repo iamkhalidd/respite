@@ -265,8 +265,11 @@ export default async function HomePage() {
                 {home.closingText}
               </p>
               <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-                <Link href="/apply" className="btn btn-primary press !h-12 !px-6">
-                  <Roll>Request a room</Roll> <ArrowRight size={16} />
+                <Link href={open ? "/apply" : "/waitlist"} className="btn btn-primary press !h-12 !px-6">
+                  <Roll>{open ? "Request a room" : "Join the waitlist"}</Roll> <ArrowRight size={16} />
+                </Link>
+                <Link href="/tour" className="btn btn-ghost press !h-12 !px-6">
+                  <Roll>Book a tour</Roll>
                 </Link>
                 <a href={house.phoneHref} className="btn btn-ghost press mono !h-12 !px-6">
                   <Roll>{house.phone}</Roll>

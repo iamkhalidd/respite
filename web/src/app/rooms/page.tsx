@@ -106,7 +106,7 @@ export default async function RoomsPage({ searchParams }: { searchParams: Promis
             </p>
             <div className="mt-7 flex flex-wrap justify-center gap-3">
               <Link href="/rooms" className="btn btn-ghost press">Clear filters</Link>
-              <Link href="/apply" className="btn btn-primary press">Join the waitlist</Link>
+              <Link href="/waitlist" className="btn btn-primary press">Join the waitlist</Link>
             </div>
           </div>
         )}

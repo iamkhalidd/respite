@@ -15,12 +15,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
 from ..db import get_db, now
-from ..models import Bed, Charge, Request, Resident, Room
+from ..models import Bed, Charge, Request, Resident, Room, Tour, WaitlistEntry
 from ..security import current_admin
 from ..serialize import row, rows
 from ..services.availability import get_beds, get_rooms_with_beds, sorted_beds
 from ..services.billing import bill_rent
-from ..services import content, notify
+from ..services import content, notify, tours, waitlist
 from ..services.email import site_url
 from .notifications import failed_count, unread_count
 from ..services.fmt import first_name, money, month_label, month_start, parse_day, period
@@ -220,6 +220,8 @@ def update_room(room_id: str, body: RoomPatch, db: Session = Depends(get_db)):
         if getattr(body, k) is not None:
             setattr(room, k, getattr(body, k))
     db.commit()
+    if body.hidden is False:
+        waitlist.announce(db)
     return row(room)
 
 
@@ -313,6 +315,7 @@ def add_bed(room_id: str, body: BedIn, db: Session = Depends(get_db)):
     bed = Bed(label=body.label.strip() or _next_bed_label(db), roomId=room.id)
     db.add(bed)
     db.commit()
+    waitlist.announce(db)
     return row(bed)
 
 
@@ -347,6 +350,8 @@ def update_bed(bed_id: str, body: BedPatch, db: Session = Depends(get_db)):
         else:
             bed.availableFrom = None
     db.commit()
+    if bed.availableFrom:
+        waitlist.announce(db)
     return row(bed)
 
 
@@ -402,6 +407,18 @@ def remove_photo(room_id: str, body: PhotoRef, db: Session = Depends(get_db)):
     return {"photos": _photos(room)}
 
 
+
+@router.post("/rooms/{room_id}/photos/cover")
+def cover_photo(room_id: str, body: PhotoRef, db: Session = Depends(get_db)):
+    """Moves one photo to the front: the room card on the site shows the first."""
+    room = _get(db, Room, room_id, "room")
+    photos = _photos(room)
+    if body.src not in photos:
+        raise HTTPException(404, "That photo isn't on this room any more.")
+    room.photos = json.dumps([body.src, *[p for p in photos if p != body.src]])
+    db.commit()
+    return {"photos": _photos(room)}
+
 # ───── Residents ─────
 
 @router.get("/residents")
@@ -451,6 +468,7 @@ def move_out(resident_id: str, db: Session = Depends(get_db)):
     r = _get(db, Resident, resident_id, "resident")
     r.active, r.moveOutDate, r.bedId = False, now(), None
     db.commit()
+    waitlist.announce(db)
     return row(r)
 
 
@@ -586,3 +604,102 @@ def upload_site_photo(photo: UploadFile = File(...)):
         log.exception("Photo upload failed")
         raise HTTPException(502, "The photo couldn't be saved. Try again in a minute.") from None
     return {"src": url}
+
+
+# ───── Tours ─────
+
+@router.get("/tours/settings")
+def tour_settings(db: Session = Depends(get_db)):
+    return tours.get_settings(db).model_dump()
+
+
+@router.put("/tours/settings")
+def save_tour_settings(body: dict, db: Session = Depends(get_db)):
+    try:
+        s = tours.Settings.model_validate(body)
+    except (ValidationError, ValueError):
+        raise HTTPException(400, "Check the times and dates. Times look like 14:30, dates like 2026-12-25.")
+    return tours.save_settings(db, s).model_dump()
+
+
+def _tour_row(t: Tour) -> dict:
+    return row(t, when=tours.when(t.date, t.time), startsAt=tours.starts_at(t.date, t.time).isoformat())
+
+
+@router.get("/tours")
+def list_tours(when: Literal["upcoming", "past"] = Query("upcoming"), db: Session = Depends(get_db)):
+    today = tours.local_now().date().isoformat()
+    q = select(Tour)
+    if when == "upcoming":
+        q = q.where(Tour.date >= today, Tour.status == "BOOKED").order_by(Tour.date, Tour.time)
+    else:
+        q = q.where((Tour.date < today) | (Tour.status != "BOOKED")).order_by(Tour.date.desc(), Tour.time.desc()).limit(100)
+    return [_tour_row(t) for t in db.scalars(q).all()]
+
+
+class TourPatch(BaseModel):
+    status: Literal["BOOKED", "DONE", "NO_SHOW", "CANCELLED"]
+
+
+@router.patch("/tours/{tour_id}")
+def update_tour(tour_id: str, body: TourPatch, db: Session = Depends(get_db)):
+    t = _get(db, Tour, tour_id, "tour")
+    if body.status == t.status:
+        return _tour_row(t)
+    if body.status == "BOOKED" and db.scalar(select(Tour).where(Tour.date == t.date, Tour.time == t.time, Tour.status == "BOOKED")):
+        raise HTTPException(409, "Someone else has that time now.")
+    if body.status == "CANCELLED" and t.status == "BOOKED":
+        t.cancelledBy = "HOUSE"
+        tours.email_cancelled_by_house(db, t)
+    t.status = body.status
+    db.commit()
+    return _tour_row(t)
+
+
+class TourByHouse(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    name: str = Field(min_length=2, max_length=200)
+    phone: str = Field(min_length=7, max_length=60)
+    email: str | None = Field(default=None, max_length=200)
+    note: str = Field(default="", max_length=1000)
+
+
+@router.post("/tours", status_code=201)
+def book_for_caller(body: TourByHouse, db: Session = Depends(get_db)):
+    """For someone who called. Any time works here, not just the weekly ones; it still can't double book."""
+    if parse_day(body.date) is None:
+        raise HTTPException(400, "That isn't a date.")
+    if db.scalar(select(Tour).where(Tour.date == body.date, Tour.time == body.time, Tour.status == "BOOKED")):
+        raise HTTPException(409, "There's already a tour at that time.")
+    email = (body.email or "").strip() or None
+    t = Tour(
+        date=body.date, time=body.time, name=body.name.strip(), phone=body.phone.strip(), email=email,
+        note=body.note.strip(), bookedBy="HOUSE", token=tours.new_token(),
+    )
+    db.add(t)
+    tours.email_booked(db, t)
+    db.commit()
+    return _tour_row(t)
+
+
+# ───── Waitlist ─────
+
+@router.get("/waitlist")
+def list_waitlist(db: Session = Depends(get_db)):
+    q = select(WaitlistEntry).options(selectinload(WaitlistEntry.room)).where(WaitlistEntry.status != "REMOVED").order_by(WaitlistEntry.createdAt)
+    return [row(w, roomName=w.room.name if w.room else None) for w in db.scalars(q).all()]
+
+
+class WaitlistPatch(BaseModel):
+    status: Literal["WAITING", "NOTIFIED", "REMOVED"]
+
+
+@router.patch("/waitlist/{entry_id}")
+def update_waitlist(entry_id: str, body: WaitlistPatch, db: Session = Depends(get_db)):
+    w = _get(db, WaitlistEntry, entry_id, "waitlist entry")
+    w.status = body.status
+    if body.status == "WAITING":
+        w.notifiedAt = None
+    db.commit()
+    return row(w)

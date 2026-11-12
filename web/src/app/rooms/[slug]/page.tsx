@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowLeft, Check, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Phone, MapPin } from "lucide-react";
 import { getRoomsWithBeds } from "@/lib/availability";
 import { money, parseList, longDate } from "@/lib/format";
 import { SiteHeader, SiteFooter } from "@/components/site-chrome";
@@ -111,7 +111,12 @@ export default async function RoomPage({ params }: { params: Promise<{ slug: str
                 <li>About 15 minutes to the Richmond VA Medical Center</li>
                 <li>Close to I-95 and Route 10</li>
                 <li>Near grocery stores, pharmacies and bus service</li>
-                <li>Exact address shared when you book a tour</li>
+                <li>
+                  Exact address shared when you{" "}
+                  <Link href="/tour" className="font-medium text-ink underline underline-offset-4">
+                    book a tour
+                  </Link>
+                </li>
               </ul>
             </section>
           </div>
@@ -130,11 +135,14 @@ export default async function RoomPage({ params }: { params: Promise<{ slug: str
                 <span className="text-[0.95rem] font-semibold">{availabilityText(room)}</span>
               </div>
 
-              <Link href={`/apply?room=${room.slug}`} className="btn btn-primary press !h-12 w-full">
+              <Link href={canRequest ? `/apply?room=${room.slug}` : `/waitlist?room=${room.slug}`} className="btn btn-primary press !h-12 w-full">
                 {canRequest ? "Request this room" : "Join the waitlist"}
               </Link>
-              <a href={house.phoneHref} className="btn btn-ghost press mt-2.5 !h-12 w-full">
-                <Phone size={15} /> Call {house.phone}
+              <Link href="/tour" className="btn btn-ghost press mt-2.5 !h-12 w-full">
+                <CalendarDays size={15} /> Book a tour
+              </Link>
+              <a href={house.phoneHref} className="press mono mt-2.5 flex h-10 w-full items-center justify-center gap-2 rounded-full text-[0.88rem] text-ink/65 hover:text-ink">
+                <Phone size={14} /> {house.phone}
               </a>
               <p className="mt-4 text-center text-[0.85rem] text-ink/55">Requesting is free. We&apos;ll call you before anything is final.</p>
             </div>
@@ -168,7 +176,7 @@ export default async function RoomPage({ params }: { params: Promise<{ slug: str
             </p>
             <p className="truncate text-[0.82rem] text-ink/60">{availabilityText(room)}</p>
           </div>
-          <Link href={`/apply?room=${room.slug}`} className="btn btn-primary press !h-12 shrink-0 px-6">
+          <Link href={canRequest ? `/apply?room=${room.slug}` : `/waitlist?room=${room.slug}`} className="btn btn-primary press !h-12 shrink-0 px-6">
             {canRequest ? "Request" : "Join waitlist"}
           </Link>
         </div>

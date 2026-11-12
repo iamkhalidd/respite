@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, ImagePlus, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import type { Chapter, FaqItem, HomeCopy, House, IncludedItem, SitePhoto } from "@/lib/types";
 import { resetContent, saveContent, uploadSitePhoto, type FormState } from "../../actions";
+import { shrinkPhoto } from "@/lib/shrink-photo";
 import { Card, CardHead, btnPrimary, btnQuiet, input } from "../ui";
 
 /* ───────── Shared pieces ───────── */
@@ -77,7 +78,7 @@ function PhotoSlot({ label, value, onChange, caption = true }: { label: string; 
     setBusy(true);
     setError("");
     const body = new FormData();
-    body.set("photo", f);
+    body.set("photo", await shrinkPhoto(f));
     const r = await uploadSitePhoto(body);
     setBusy(false);
     if (r.src) onChange({ ...value, src: r.src });

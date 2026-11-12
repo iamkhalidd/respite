@@ -267,12 +267,12 @@ export function Flow({ rooms, initialRoom, initialFor, phone }: { rooms: RoomOpt
   );
 }
 
-const tile = (on: boolean) =>
+export const tile = (on: boolean) =>
   `press group flex w-full flex-col items-start rounded-2xl bg-paper p-5 text-left ring-1 transition-[box-shadow,background-color] duration-200 ${
     on ? "ring-2 ring-ink bg-[#fff8ea] shadow-[0_3px_0_var(--ink)]" : "ring-line shadow-[0_3px_0_rgb(23_33_28/.12)] hover:ring-line-strong"
   }`;
 
-function Q({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+export function Q({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section>
       <h1 className="display-2 text-[clamp(2.1rem,5.4vw,3.4rem)]">{title}</h1>
@@ -312,7 +312,7 @@ function Fields({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-4">{children}</div>;
 }
 
-function Field({ label, value, onChange, type = "text", ...rest }: { label: string; value?: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string }) {
+export function Field({ label, value, onChange, type = "text", ...rest }: { label: string; value?: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string }) {
   return (
     <label className="block">
       <span className="mb-2 block text-[0.92rem] font-medium text-ink/75">{label}</span>

@@ -219,6 +219,10 @@ def test_room_edit_and_photo(client, auth):
     assert up.status_code == 201, up.text
     src = up.json()["photos"][-1]
     assert src.startswith("/uploads/") and (_tmp / "uploads" / src.split("/")[-1]).exists()
+    second = client.post(f"/admin/rooms/{room['id']}/photos", headers=auth, files={"photo": ("q.webp", b"RIFF fake", "image/webp")}).json()["photos"][-1]
+    assert client.post(f"/admin/rooms/{room['id']}/photos/cover", headers=auth, json={"src": second}).json()["photos"] == [second, src]
+    assert client.post(f"/admin/rooms/{room['id']}/photos/cover", headers=auth, json={"src": "/uploads/gone.png"}).status_code == 404
+    client.post(f"/admin/rooms/{room['id']}/photos/remove", headers=auth, json={"src": second})
     assert client.post(f"/admin/rooms/{room['id']}/photos/remove", headers=auth, json={"src": src}).json()["photos"] == []
     txt = client.post(f"/admin/rooms/{room['id']}/photos", headers=auth, files={"photo": ("a.txt", b"hi", "text/plain")})
     assert txt.status_code == 400
@@ -344,3 +348,97 @@ def test_staff_can_work_but_not_manage_the_team(client):
     assert client.patch(f"/admin/users/{staff_id}", headers=auth, json={"role": "OWNER"}).json()["role"] == "OWNER"
     assert client.get("/auth/me", headers=staff).status_code == 401  # role change signs them out
     assert client.delete(f"/admin/users/{staff_id}", headers=auth).status_code == 204
+
+
+def _sent(kind):
+    with SessionLocal() as db:
+        return [n for n in db.query(Notification).filter(Notification.kind == kind, Notification.channel == "EMAIL").all()]
+
+
+def test_tours_schedule_book_cancel_and_remind(client):
+    auth = _login(client)
+    from datetime import timedelta
+
+    from app.models import Tour
+    from app.services import tours
+
+    # nothing is bookable until the owners set times
+    assert client.get("/public/tours/slots").json() == {"enabled": False, "days": []}
+    assert client.put("/admin/tours/settings", json={"enabled": True, "slots": [{"day": 9, "time": "10:00"}]}, headers=auth).status_code == 400
+    every_day = [{"day": d, "time": t} for d in range(7) for t in ("10:00", "14:30")]
+    closed = (tours.local_now().date() + timedelta(days=3)).isoformat()
+    s = client.put("/admin/tours/settings", json={"enabled": True, "slots": every_day, "closedDays": [closed]}, headers=auth).json()
+    assert len(s["slots"]) == 14 and s["daysAhead"] == 21
+    days = client.get("/public/tours/slots").json()["days"]
+    assert days and closed not in [d["date"] for d in days]
+    first = days[0]
+    assert tours.starts_at(first["date"], first["times"][0]) >= tours.local_now() + timedelta(hours=12)
+
+    pick = {"date": first["date"], "time": first["times"][0]}
+    assert client.post("/public/tours", json={**pick, "name": "A", "phone": "8045550100"}).status_code == 400
+    r = client.post("/public/tours", json={**pick, "name": "Dana Whitfield", "phone": "804-555-0100", "email": "dana@example.com", "program": "VETERAN"})
+    assert r.status_code == 201, r.text
+    token = r.json()["token"]
+    assert client.post("/public/tours", json={**pick, "name": "Lee Boone", "phone": "804-555-0101"}).status_code == 409
+    after = client.get("/public/tours/slots").json()["days"]
+    assert pick["time"] not in next(d["times"] for d in after if d["date"] == pick["date"]) if any(d["date"] == pick["date"] for d in after) else True
+    assert any(n.recipient == "dana@example.com" and "/tour/" in n.body for n in _sent("tour.confirmed"))
+    assert any("Dana Whitfield" in n.subject for n in _sent("tour.booked"))
+
+    # the visitor's link shows it and cancels it, which frees the time
+    assert client.get(f"/public/tours/{token}").json()["status"] == "BOOKED"
+    assert client.get("/public/tours/nope").status_code == 404
+    assert client.post(f"/public/tours/{token}/cancel").json()["status"] == "CANCELLED"
+    again = client.get("/public/tours/slots").json()["days"]
+    assert pick["time"] in next(d["times"] for d in again if d["date"] == pick["date"])
+
+    # the house books a caller, then cancels: the visitor is told
+    r = client.post("/admin/tours", json={**pick, "name": "Lee Boone", "phone": "804-555-0101", "email": "lee@example.com"}, headers=auth)
+    assert r.status_code == 201, r.text
+    assert client.post("/admin/tours", json={**pick, "name": "Sam Ortiz", "phone": "804-555-0102"}, headers=auth).status_code == 409
+    upcoming = client.get("/admin/tours", headers=auth).json()
+    assert [t["name"] for t in upcoming] == ["Lee Boone"] and upcoming[0]["when"]
+    assert client.patch(f"/admin/tours/{r.json()['id']}", json={"status": "CANCELLED"}, headers=auth).json()["cancelledBy"] == "HOUSE"
+    assert any(n.recipient == "lee@example.com" for n in _sent("tour.cancelled"))
+    assert {t["name"] for t in client.get("/admin/tours?when=past", headers=auth).json()} >= {"Dana Whitfield", "Lee Boone"}
+
+    # a tour a few hours out, booked days ago, gets one reminder each side
+    soon = tours.local_now() + timedelta(hours=3)
+    r = client.post("/admin/tours", json={"date": soon.date().isoformat(), "time": soon.strftime("%H:%M"), "name": "Rae Kim", "phone": "804-555-0103", "email": "rae@example.com"}, headers=auth)
+    with SessionLocal() as db:
+        db.get(Tour, r.json()["id"]).createdAt = now() - timedelta(days=2)
+        db.commit()
+    cron = {"Authorization": "Bearer cron-test"}
+    assert client.post("/cron/notifications", headers=cron).json()["reminded"] == 1
+    assert client.post("/cron/notifications", headers=cron).json()["reminded"] == 0
+    assert any(n.recipient == "rae@example.com" for n in _sent("tour.reminder"))
+    assert any(n.recipient == "owner@example.com" and "Rae Kim" in n.subject for n in _sent("tour.reminder"))
+
+
+def test_waitlist_join_announce_and_leave(client):
+    auth = _login(client)
+    from app.models import WaitlistEntry
+
+    assert client.post("/public/waitlist", json={"name": "Pat Greer", "email": "not-an-email"}).status_code == 400
+    r = client.post("/public/waitlist", json={"name": "Pat Greer", "email": "Pat@Example.com", "room": "maple-room"})
+    assert r.status_code == 201 and r.json()["again"] is False
+    assert client.post("/public/waitlist", json={"name": "Pat Greer", "email": "pat@example.com"}).json()["again"] is True
+    listed = client.get("/admin/waitlist", headers=auth).json()
+    assert [w["email"] for w in listed] == ["pat@example.com"] and listed[0]["roomName"] is None
+    with SessionLocal() as db:
+        token = db.query(WaitlistEntry).one().token
+    assert any("/waitlist/" in n.body for n in _sent("waitlist.joined"))
+
+    # anything that opens a bed tells the people waiting, once
+    bed = client.get("/admin/beds", headers=auth).json()[0]
+    assert client.patch(f"/admin/beds/{bed['id']}", json={"availableFrom": "2027-01-15"}, headers=auth).status_code == 200
+    told = _sent("waitlist.opening")
+    assert len(told) == 1 and told[0].recipient == "pat@example.com" and "/apply?room=" in told[0].body
+    assert client.get("/admin/waitlist", headers=auth).json()[0]["status"] == "NOTIFIED"
+    client.patch(f"/admin/beds/{bed['id']}", json={"availableFrom": "2027-01-16"}, headers=auth)
+    assert len(_sent("waitlist.opening")) == 1
+
+    # their link takes them off
+    assert client.get(f"/public/waitlist/{token}").json()["firstName"] == "Pat"
+    assert client.post(f"/public/waitlist/{token}/leave").json()["status"] == "REMOVED"
+    assert client.get("/admin/waitlist", headers=auth).json() == []

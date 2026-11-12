@@ -156,3 +156,46 @@ class SiteContent(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)  # house | home | who | faq
     value: Mapped[str] = mapped_column(Text)  # JSON
     updatedAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now, onupdate=now)
+
+
+class Tour(Base):
+    """A visit to the house. Date and time are the house's own local time (America/New_York)."""
+
+    __tablename__ = "Tour"
+    __table_args__ = (
+        # one booked visit per slot; cancelled ones free it again
+        Index("Tour_slot_booked", "date", "time", unique=True, sqlite_where=text("status = 'BOOKED'"), postgresql_where=text("status = 'BOOKED'")),
+    )
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    date: Mapped[str] = mapped_column(String)  # 2026-12-03
+    time: Mapped[str] = mapped_column(String)  # 14:30
+    name: Mapped[str] = mapped_column(String)
+    phone: Mapped[str] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    program: Mapped[str | None] = mapped_column(String, nullable=True)  # VETERAN | RECOVERY | SENIOR
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="BOOKED")  # BOOKED | DONE | NO_SHOW | CANCELLED
+    cancelledBy: Mapped[str | None] = mapped_column(String, nullable=True)  # VISITOR | HOUSE
+    bookedBy: Mapped[str] = mapped_column(String, default="VISITOR")  # VISITOR | HOUSE (taken over the phone)
+    token: Mapped[str] = mapped_column(String, unique=True)  # the visitor's link to see or cancel it
+    reminderSentAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class WaitlistEntry(Base):
+    """Someone who wants an email when a bed opens."""
+
+    __tablename__ = "Waitlist"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    createdAt: Mapped[datetime] = mapped_column(UtcDateTime, default=now)
+    name: Mapped[str] = mapped_column(String)
+    email: Mapped[str] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    program: Mapped[str | None] = mapped_column(String, nullable=True)
+    roomId: Mapped[str | None] = mapped_column(ForeignKey("Room.id", ondelete="SET NULL"), nullable=True)  # null: any room
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="WAITING")  # WAITING | NOTIFIED | REMOVED
+    notifiedAt: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    token: Mapped[str] = mapped_column(String, unique=True)  # their link to leave the list
+
+    room: Mapped[Room | None] = relationship()

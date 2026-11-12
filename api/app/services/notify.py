@@ -9,6 +9,7 @@ action that was rolled back. The outbox worker then sends the emails, retrying w
 
 import logging
 import threading
+import time
 from datetime import timedelta
 
 from sqlalchemy import event, select
@@ -28,6 +29,13 @@ KINDS = {
     "resident.pay_link": "Pay link or reminder",
     "rent.billed": "Rent billed",
     "payment.received": "Payment received",
+    "tour.booked": "Tour booked",
+    "tour.confirmed": "Tour confirmation",
+    "tour.reminder": "Tour reminder",
+    "tour.cancelled": "Tour cancelled",
+    "waitlist.joined": "Joined the waitlist",
+    "waitlist.opening": "Bed open, to the waitlist",
+    "waitlist.told": "Waitlist told",
     "email.failed": "Email couldn't be sent",
     "test": "Test email",
 }
@@ -112,6 +120,7 @@ class Outbox:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._next_chores = 0.0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -135,6 +144,11 @@ class Outbox:
             self._wake.clear()
             try:
                 with SessionLocal() as db:
+                    if time.monotonic() >= self._next_chores:
+                        self._next_chores = time.monotonic() + 300
+                        from .tours import send_reminders  # here, not at the top: tours imports this module
+
+                        send_reminders(db)
                     while deliver_pending(db) and not self._stop.is_set():
                         pass
             except Exception:  # keep the worker alive whatever happens

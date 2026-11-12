@@ -48,7 +48,7 @@ export async function SiteHeader() {
           >
             <Roll>Request a room</Roll>
           </Link>
-          <MobileMenu links={[...NAV, ["/apply?for=PROFESSIONAL", "Refer a client"]]} phone={phone} phoneHref={phoneHref} />
+          <MobileMenu links={[...NAV, ["/tour", "Book a tour"], ["/apply?for=PROFESSIONAL", "Refer a client"]]} phone={phone} phoneHref={phoneHref} />
         </div>
       </div>
     </HeaderShell>
@@ -79,6 +79,9 @@ export async function SiteFooter() {
             <p className="eyebrow mb-4 !text-white/40">Visit</p>
             <p className="text-white/80">{house.address}</p>
             {house.tourNote && <p className="mt-1 text-white/50">{house.tourNote}</p>}
+            <Link href="/tour" className="mt-3 inline-block text-porch hover:text-porch-glow">
+              <Roll>Book a tour</Roll>
+            </Link>
           </div>
           <div>
             <p className="eyebrow mb-4 !text-white/40">Pages</p>
@@ -86,6 +89,8 @@ export async function SiteFooter() {
               {[
                 ["/rooms", "Rooms and availability"],
                 ["/apply", "Request a room"],
+                ["/tour", "Book a tour"],
+                ["/waitlist", "Join the waitlist"],
                 ["/apply?for=PROFESSIONAL", "Refer a client"],
                 ["/admin", "Owner login"],
               ].map(([href, label]) => (

@@ -5,15 +5,15 @@ import { ArrowUpRight, EyeOff, Trash2, X } from "lucide-react";
 import { admin, orNull } from "@/lib/api";
 import type { Bed, Resident, Room } from "@/lib/types";
 import { parseList } from "@/lib/format";
-import { setBedOpening, removePhoto, renameBed, deleteBed, deleteRoom } from "../../../actions";
+import { setBedOpening, removePhoto, coverPhoto, renameBed, deleteBed, deleteRoom } from "../../../actions";
 import { Page, Card, CardHead, Label, Notice, btnQuiet, input, link } from "../../ui";
 import { SubmitButton } from "../../submit";
 import { ConfirmAction } from "../../confirm";
 import { PhotoUpload } from "./upload";
 import { AddBed, RoomForm } from "./room-form";
 
-export default async function RoomEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string }> }) {
-  const [{ id }, { new: isNew }] = await Promise.all([params, searchParams]);
+export default async function RoomEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string; photos?: string }> }) {
+  const [{ id }, { new: isNew, photos: photoNote }] = await Promise.all([params, searchParams]);
   const [room, { canUploadPhotos }] = await Promise.all([
     orNull(admin.get<Room & { beds: (Bed & { resident: Resident | null })[] }>(`/admin/rooms/${encodeURIComponent(id)}`)),
     admin.get<{ canUploadPhotos: boolean }>("/admin/config"),
@@ -48,15 +48,22 @@ export default async function RoomEdit({ params, searchParams }: { params: Promi
         </Link>
       }
     >
-      {isNew && <Notice>Room added. It stays hidden until you switch on Show on the site.</Notice>}
+      {isNew && <Notice>Room added. It stays hidden until you switch on Show on the site.{photoNote === "failed" ? " One or more photos didn't upload. Add them again below." : ""}</Notice>}
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="grid min-w-0 gap-5">
           <Card>
-            <CardHead title="Photos" hint={photos.length ? "The first photo is the one people see on the room card." : "Until you add photos, the site shows a stand-in picture of a similar room."} />
+            <CardHead title="Photos" hint={photos.length ? "The cover is the photo people see first on the room card." : "Until you add photos, the site shows a stand-in picture of a similar room."} />
             <div className="grid grid-cols-2 gap-3 p-5 pt-4 sm:grid-cols-3 sm:p-6 sm:pt-4">
-              {photos.map((p) => (
+              {photos.map((p, i) => (
                 <div key={p} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-ink/[.05] ring-1 ring-line">
                   <img src={p} alt="" className="h-full w-full object-cover" />
+                  {i === 0 ? (
+                    <span className="mono absolute bottom-1.5 left-1.5 inline-flex h-6 items-center rounded-full bg-porch px-2.5 text-[0.68rem] font-semibold uppercase text-ink">Cover</span>
+                  ) : (
+                    <form action={coverPhoto.bind(null, room.id, p)} className="absolute bottom-1.5 left-1.5">
+                      <button className="press inline-flex h-8 items-center rounded-full bg-night/75 px-3 text-[0.78rem] font-medium text-white backdrop-blur-sm transition-colors hover:bg-night">Make cover</button>
+                    </form>
+                  )}
                   <form action={removePhoto.bind(null, room.id, p)} className="absolute right-1.5 top-1.5">
                     <button aria-label="Remove photo" className="press grid h-9 w-9 place-items-center rounded-full bg-night/75 text-white backdrop-blur-sm transition-colors hover:bg-ember">
                       <X size={15} />

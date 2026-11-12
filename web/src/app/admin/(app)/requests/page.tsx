@@ -4,6 +4,7 @@ import type { Request, Room } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { MOVE_IN, PROGRAMS, STATUS_LABEL, type Program, type Status } from "@/lib/labels";
 import { Page, Card, Empty, StatusPill } from "../ui";
+import { InboxTabs } from "../inbox-tabs";
 
 const COLUMNS: Status[] = ["NEW", "CONTACTED", "TOUR", "APPROVED"];
 const HINT: Record<string, string> = {
@@ -63,6 +64,7 @@ export default async function Requests({ searchParams }: { searchParams: Promise
         </div>
       }
     >
+      <InboxTabs on="requests" />
       {isClosed ? (
         <Card>
           {closed.length ? (

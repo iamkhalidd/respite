@@ -66,7 +66,9 @@ function BellLink({ unread, failedEmails, className }: { unread: number; failedE
 export function Sidebar({ newRequests, overdue, beds, unread, failedEmails }: Props) {
   const path = usePathname();
   const count = { requests: newRequests, overdue, unread: unread + failedEmails } as const;
-  const isActive = (href: string, exact?: boolean) => (exact ? path === href : path.startsWith(href));
+  // tours and the waitlist live under Requests, so it stays lit there too
+  const isActive = (href: string, exact?: boolean) =>
+    exact ? path === href : path.startsWith(href) || (href === "/admin/requests" && /^\/admin\/(tours|waitlist)/.test(path));
   const open = beds.filter((b) => b === "open").length;
 
   return (
